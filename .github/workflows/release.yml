@@ -1,0 +1,53 @@
+name: Check and release plugin
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: obsidian-plugin/package-lock.json
+      - run: npm ci --prefix obsidian-plugin
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quiet-tree
+          path: |
+            obsidian-plugin/dist/main.js
+            obsidian-plugin/dist/manifest.json
+            obsidian-plugin/dist/styles.css
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: quiet-tree
+          path: dist
+      - name: Publish BRAT assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/main.js dist/manifest.json dist/styles.css --verify-tag --title "Quiet Tree $RELEASE_TAG" --generate-notes

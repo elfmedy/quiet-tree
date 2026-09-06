@@ -1,0 +1,12 @@
+{
+  "name": "quiet-tree",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "build": "node scripts/check-release.mjs && npm --prefix obsidian-plugin run build",
+    "typecheck": "npm --prefix obsidian-plugin run typecheck",
+    "test": "node --test tests/*.test.mjs && npm --prefix obsidian-plugin test"
+  }
+}
