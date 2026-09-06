@@ -1,12 +1,25 @@
 {
   "name": "quiet-tree",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
-    "build": "node scripts/check-release.mjs && npm --prefix obsidian-plugin run build",
-    "typecheck": "npm --prefix obsidian-plugin run typecheck",
-    "test": "node --test tests/*.test.mjs && npm --prefix obsidian-plugin test"
+    "build": "node scripts/check-release.mjs && node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src lib",
+    "test": "node scripts/test.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "obsidian": "1.13.1",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "@types/node": "22.19.19",
+    "eslint": "^9.39.0",
+    "eslint-plugin-obsidianmd": "0.4.2"
   }
 }

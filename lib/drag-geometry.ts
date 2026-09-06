@@ -11,11 +11,7 @@ export function nearestGap(
   count: number,
   previous: number | null,
 ): number {
-  if (
-    previous !== null &&
-    Math.abs(y - previous * rowHeight) <= rowHeight / 2 + 5
-  )
-    return previous;
+  if (previous !== null && Math.abs(y - previous * rowHeight) <= rowHeight / 2 + 5) return previous;
   return Math.max(0, Math.min(count, Math.round(y / rowHeight)));
 }
 export type Rect = { left: number; top: number; width: number; height: number };
@@ -25,7 +21,7 @@ export type BoundaryPicker = Rect & {
   header: number;
   slotHeight: number;
   scrollTop: number;
-  side: 'right' | 'below';
+  side: "right" | "below";
   armed: boolean;
 };
 export function makeBoundaryPicker(
@@ -41,24 +37,15 @@ export function makeBoundaryPicker(
   scrollTop: number,
 ): BoundaryPicker {
   const width = Math.min(252, Math.max(190, rect.width - 32), screenWidth - 16);
-  const side =
-    rect.left + rect.width + 12 + width <= screenWidth - 8 ? 'right' : 'below';
+  const side = rect.left + rect.width + 12 + width <= screenWidth - 8 ? "right" : "below";
   const header = 30,
     height = header + count * slotHeight;
   const left =
-    side === 'right'
+    side === "right"
       ? rect.left + rect.width + 10
-      : Math.max(
-          8,
-          Math.min(
-            screenWidth - width - 8,
-            rect.left + rect.width - width - 10,
-          ),
-        );
+      : Math.max(8, Math.min(screenWidth - width - 8, rect.left + rect.width - width - 10));
   const desiredTop =
-    side === 'right'
-      ? anchorY - header - (choice + 0.5) * slotHeight
-      : anchorY + 14;
+    side === "right" ? anchorY - header - (choice + 0.5) * slotHeight : anchorY + 14;
   const top = Math.max(8, Math.min(screenHeight - height - 8, desiredTop));
   return {
     left,
@@ -74,12 +61,7 @@ export function makeBoundaryPicker(
     armed: false,
   };
 }
-export function contains(
-  rect: Rect,
-  x: number,
-  y: number,
-  padding = 0,
-): boolean {
+export function contains(rect: Rect, x: number, y: number, padding = 0): boolean {
   return (
     x >= rect.left - padding &&
     x <= rect.left + rect.width + padding &&
@@ -94,46 +76,30 @@ export function pickerHit(
   y: number,
   count: number,
   previousChoice: number,
-): number | 'bridge' | null {
+): number | "bridge" | null {
   if (contains(picker, x, y, 4)) {
-    if (!picker.armed || y < picker.top + picker.header) return 'bridge';
+    if (!picker.armed || y < picker.top + picker.header) return "bridge";
     const local = y - picker.top - picker.header;
     if (
       local >= previousChoice * picker.slotHeight - 5 &&
       local <= (previousChoice + 1) * picker.slotHeight + 5
     )
       return previousChoice;
-    return Math.max(
-      0,
-      Math.min(count - 1, Math.floor(local / picker.slotHeight)),
-    );
+    return Math.max(0, Math.min(count - 1, Math.floor(local / picker.slotHeight)));
   }
   const endX =
-    picker.side === 'right'
+    picker.side === "right"
       ? picker.left
-      : Math.max(
-          picker.left,
-          Math.min(picker.left + picker.width, picker.originX),
-        );
-  const endY = picker.side === 'right' ? picker.originY : picker.top;
-  if (
-    picker.side === 'right' &&
-    x >= picker.originX - 8 &&
-    x <= picker.left + 4
-  ) {
+      : Math.max(picker.left, Math.min(picker.left + picker.width, picker.originX));
+  const endY = picker.side === "right" ? picker.originY : picker.top;
+  if (picker.side === "right" && x >= picker.originX - 8 && x <= picker.left + 4) {
     const progress = Math.max(
       0,
-      Math.min(
-        1,
-        (x - picker.originX) / Math.max(1, picker.left - picker.originX),
-      ),
+      Math.min(1, (x - picker.originX) / Math.max(1, picker.left - picker.originX)),
     );
     const top = picker.originY + (picker.top - picker.originY) * progress - 8;
-    const bottom =
-      picker.originY +
-      (picker.top + picker.height - picker.originY) * progress +
-      8;
-    if (y >= top && y <= bottom) return 'bridge';
+    const bottom = picker.originY + (picker.top + picker.height - picker.originY) * progress + 8;
+    if (y >= top && y <= bottom) return "bridge";
   }
   const bridge = {
     left: Math.min(picker.originX, endX) - 8,
@@ -141,17 +107,15 @@ export function pickerHit(
     width: Math.abs(picker.originX - endX) + 16,
     height: Math.abs(picker.originY - endY) + 16,
   };
-  return contains(bridge, x, y) ? 'bridge' : null;
+  return contains(bridge, x, y) ? "bridge" : null;
 }
-export type PressPhase = 'pending' | 'dragging' | 'cancelled';
+export type PressPhase = "pending" | "dragging" | "cancelled";
 export function pressIntent(
-  input: 'mouse' | 'touch',
+  input: "mouse" | "touch",
   elapsed: number,
   distance: number,
   delay: number,
 ): PressPhase {
-  if (input === 'touch' && distance > 8) return 'cancelled';
-  return elapsed >= delay && (input === 'touch' || distance >= 4)
-    ? 'dragging'
-    : 'pending';
+  if (input === "touch" && distance > 8) return "cancelled";
+  return elapsed >= delay && (input === "touch" || distance >= 4) ? "dragging" : "pending";
 }

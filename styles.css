@@ -1,4 +1,4 @@
-.qt-explorer .tree-item-self:has(> .qt-handle) {
+.qt-explorer .tree-item-self.qt-sortable {
   position: relative;
   padding-inline-end: 28px;
 }
@@ -35,11 +35,11 @@
   border-radius: 2px;
 }
 .qt-explorer.qt-dragging .tree-item-self:not(.qt-inside) {
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
-  outline: none !important;
-  color: var(--nav-item-color, var(--text-muted)) !important;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  outline: none;
+  color: var(--nav-item-color, var(--text-muted));
 }
 .qt-explorer.qt-dragging
   .tree-item-self:is(.is-active, .is-selected, .has-focus):not(
@@ -49,10 +49,10 @@
   .tree-item-self:is(.is-active, .is-selected, .has-focus):not(
     .qt-inside
   )::after {
-  opacity: 0 !important;
+  opacity: 0;
 }
 .qt-explorer.qt-dragging .qt-handle {
-  visibility: hidden !important;
+  visibility: hidden;
   pointer-events: none;
 }
 .qt-drag-surface {
@@ -81,7 +81,20 @@
   gap: 6px;
   margin: 0 0 10px;
 }
-.qt-settings .qt-section-header h3 {
+.qt-settings .qt-section-header .setting-item-heading {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  flex: 0 1 auto;
+  margin: 0;
+}
+.qt-settings .qt-section-header .setting-item-info {
+  margin: 0;
+}
+.qt-settings .qt-section-header .setting-item-control {
+  display: none;
+}
+.qt-settings .qt-section-header .setting-item-name {
   margin: 0;
   font-size: var(--font-ui-small);
   font-weight: 600;
@@ -216,9 +229,9 @@
 .qt-explorer.qt-dragging,
 .qt-explorer.qt-dragging *,
 .qt-drag-surface {
-  cursor: grabbing !important;
-  user-select: none !important;
-  -webkit-user-select: none !important;
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .qt-ghost {
   position: fixed;
@@ -240,7 +253,6 @@
   box-sizing: border-box;
   border: 1px solid var(--interactive-accent);
   border-radius: 6px;
-  background: var(--background-primary);
   background: color-mix(
     in srgb,
     var(--interactive-accent) 16%,
@@ -415,7 +427,6 @@
   visibility: visible;
 }
 .qt-picker-option.is-selected {
-  background: var(--background-modifier-hover);
   background: color-mix(
     in srgb,
     var(--interactive-accent) 16%,

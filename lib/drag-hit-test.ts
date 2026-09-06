@@ -7,8 +7,8 @@ import {
   type DropTarget,
   type FileTree,
   type TreeRow,
-} from './explorer-model.ts';
-import { nearestGap, type GapBand } from './drag-geometry.ts';
+} from "./explorer-model.ts";
+import { nearestGap, type GapBand } from "./drag-geometry.ts";
 
 export type DragHit = {
   target: DropTarget | null;
@@ -28,7 +28,7 @@ export function normalizeHit(
   tree: FileTree,
   rows: TreeRow[],
   id: string,
-  hit: Omit<DragHit, 'noOp'>,
+  hit: Omit<DragHit, "noOp">,
 ): DragHit {
   const noOp = !!hit.target && isNoopMove(tree, id, hit.target);
   if (!noOp) return { ...hit, noOp };
@@ -41,19 +41,14 @@ export function normalizeHit(
       parentId: node.parentId,
       beforeId: id,
       depth: row?.depth ?? 0,
-      kind: 'insert',
+      kind: "insert",
     },
   };
 }
-export function chooseDepth(
-  candidates: DropTarget[],
-  x: number,
-  choice: number,
-): number {
+export function chooseDepth(candidates: DropTarget[], x: number, choice: number): number {
   const center = (index: number) => 30 + candidates[index].depth * 22;
   const closest = candidates.reduce(
-    (best, _t, i) =>
-      Math.abs(center(i) - x) < Math.abs(center(best) - x) ? i : best,
+    (best, _t, i) => (Math.abs(center(i) - x) < Math.abs(center(best) - x) ? i : best),
     choice,
   );
   if (closest === choice) return choice;
@@ -78,10 +73,7 @@ export function resolveTreeHit(
   horizontal = false,
 ): DragHit {
   if (!rows.length) return emptyHit;
-  const index = Math.max(
-    0,
-    Math.min(rows.length - 1, Math.floor(y / rowHeight)),
-  );
+  const index = Math.max(0, Math.min(rows.length - 1, Math.floor(y / rowHeight)));
   const row = rows[index],
     fraction = (y - index * rowHeight) / rowHeight;
   const node = tree.nodes[row.id];
@@ -92,14 +84,13 @@ export function resolveTreeHit(
         parentId: node.parentId,
         beforeId: id,
         depth: row.depth,
-        kind: 'insert',
+        kind: "insert",
       },
     });
   }
-  const wasInside =
-    previous.target?.kind === 'inside' && previous.target.parentId === row.id;
+  const wasInside = previous.target?.kind === "inside" && previous.target.parentId === row.id;
   if (
-    node.kind === 'folder' &&
+    node.kind === "folder" &&
     fraction > (wasInside ? 0.2 : 0.32) &&
     fraction < (wasInside ? 0.8 : 0.68)
   ) {
@@ -112,14 +103,11 @@ export function resolveTreeHit(
     });
   }
   if (isInSubtree(tree, row.id, id) && fraction > 0.25 && fraction < 0.75)
-    return { ...emptyHit, invalid: '不能放入自身或自己的子目录' };
+    return { ...emptyHit, invalid: "不能放入自身或自己的子目录" };
   const gap = nearestGap(y, rowHeight, rows.length, previous.band?.gap ?? null);
   const candidates = gapTargets(tree, rows, gap, id);
-  if (!candidates.length)
-    return { ...emptyHit, invalid: '不能放入自身或自己的子目录' };
-  const same = candidates.findIndex(
-    (t) => t.parentId === tree.nodes[id].parentId,
-  );
+  if (!candidates.length) return { ...emptyHit, invalid: "不能放入自身或自己的子目录" };
+  const same = candidates.findIndex((t) => t.parentId === tree.nodes[id].parentId);
   let choice =
     previous.band?.gap === gap
       ? Math.min(previous.band.choice, candidates.length - 1)

@@ -1,80 +1,74 @@
 /** Portable order format: directory paths -> direct child names, in display order. */
 export type Order = Record<string, string[]>;
 export const parentPath = (path: string): string =>
-  path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '/';
-export const baseName = (path: string): string =>
-  path.slice(path.lastIndexOf('/') + 1);
+  path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "/";
+export const baseName = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 export const childPath = (parent: string, name: string): string =>
-  parent === '/' ? name : `${parent}/${name}`;
+  parent === "/" ? name : `${parent}/${name}`;
+const hasControlCharacter = (value: string): boolean =>
+  Array.from(value).some((character) => character.charCodeAt(0) < 32);
 export function relativePath(raw: string): string {
-  const value = raw.trim().replace(/\\/g, '/');
+  const value = raw.trim().replace(/\\/g, "/");
   if (
     !value ||
-    value.startsWith('/') ||
-    /[:\x00-\x1f]/.test(value) ||
-    value.split('/').some((p) => !p || p === '.' || p === '..')
+    value.startsWith("/") ||
+    value.includes(":") ||
+    hasControlCharacter(value) ||
+    value.split("/").some((p) => !p || p === "." || p === "..")
   )
-    throw new Error('invalidPath');
+    throw new Error("invalidPath");
   return value;
 }
-export function orderPath(
-  raw: string,
-  configDir: string,
-  pluginId: string,
-): string {
+export function orderPath(raw: string, configDir: string, pluginId: string): string {
   const value = relativePath(raw);
   const lower = value.toLowerCase();
-  if (!lower.endsWith('.json')) throw new Error('invalidPath');
+  if (!lower.endsWith(".json")) throw new Error("invalidPath");
   // Never let the order editor overwrite Obsidian or another plugin's settings.
-  if (lower.startsWith(configDir.toLowerCase() + '/')) {
+  if (lower.startsWith(configDir.toLowerCase() + "/")) {
     const home = `${configDir}/plugins/${pluginId}/`.toLowerCase();
     if (
       !lower.startsWith(home) ||
-      ['data.json', 'manifest.json', 'package.json', 'versions.json'].includes(
+      ["data.json", "manifest.json", "package.json", "versions.json"].includes(
         lower.slice(home.length),
       )
     )
-      throw new Error('reservedPath');
+      throw new Error("reservedPath");
   }
   return value;
 }
 export function parseOrder(text: string): Order {
-  const value: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('invalidJson');
-  const result: Order = Object.create(null);
+  const value: unknown = JSON.parse(text.replace(/^\uFEFF/, ""));
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalidJson");
+  const result = Object.create(null) as Order;
   for (const [path, names] of Object.entries(value)) {
-    if (path !== '/' && relativePath(path) !== path)
-      throw new Error('invalidJson');
+    if (path !== "/" && relativePath(path) !== path) throw new Error("invalidJson");
+    if (!Array.isArray(names)) throw new Error("invalidJson");
+    const entries: unknown[] = names;
     if (
-      !Array.isArray(names) ||
-      names.some(
-        (n) =>
-          typeof n !== 'string' ||
-          !n ||
-          n === '.' ||
-          n === '..' ||
-          /[/\\\x00-\x1f]/.test(n),
+      !entries.every(
+        (name): name is string =>
+          typeof name === "string" &&
+          name.length > 0 &&
+          name !== "." &&
+          name !== ".." &&
+          !name.includes("/") &&
+          !name.includes("\\") &&
+          !hasControlCharacter(name),
       ) ||
-      new Set(names).size !== names.length
+      new Set(entries).size !== entries.length
     )
-      throw new Error('invalidJson');
-    result[path] = names;
+      throw new Error("invalidJson");
+    result[path] = entries;
   }
   return result;
 }
-export const stringifyOrder = (order: Order): string =>
-  JSON.stringify(order, null, 2) + '\n';
+export const stringifyOrder = (order: Order): string => JSON.stringify(order, null, 2) + "\n";
 export function excluded(path: string, rules: string[]): boolean {
-  return rules.some((rule) => path === rule || path.startsWith(rule + '/'));
+  return rules.some((rule) => path === rule || path.startsWith(rule + "/"));
 }
-export function renameExclusions(
-  rules: string[],
-  oldPath: string,
-  newPath: string,
-): string[] {
+export function renameExclusions(rules: string[], oldPath: string, newPath: string): string[] {
   return rules.map((rule) =>
-    rule === oldPath || rule.startsWith(oldPath + '/')
+    rule === oldPath || rule.startsWith(oldPath + "/")
       ? newPath + rule.slice(oldPath.length)
       : rule,
   );
@@ -92,8 +86,7 @@ export function parseExclusions(text: string): string[] {
 }
 export function attachmentExclusion(config: string | undefined): string[] {
   // Obsidian's current-folder and per-note relative modes are not one vault path.
-  if (!config || config === '/' || config === '.' || config.startsWith('./'))
-    return [];
+  if (!config || config === "/" || config === "." || config.startsWith("./")) return [];
   try {
     return [relativePath(config)];
   } catch {
@@ -102,10 +95,8 @@ export function attachmentExclusion(config: string | undefined): string[] {
 }
 export function withoutExcluded(order: Order, rules: string[]): Order {
   return Object.assign(
-    Object.create(null),
-    Object.fromEntries(
-      Object.entries(order).filter(([path]) => !excluded(path, rules)),
-    ),
+    Object.create(null) as Order,
+    Object.fromEntries(Object.entries(order).filter(([path]) => !excluded(path, rules))),
   );
 }
 export function sortItems<T>(
@@ -124,26 +115,18 @@ export function sortItems<T>(
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map((entry) => entry.item);
 }
-export function renameOrder(
-  order: Order,
-  oldPath: string,
-  newPath: string,
-): Order {
-  const next: Order = Object.create(null);
+export function renameOrder(order: Order, oldPath: string, newPath: string): Order {
+  const next = Object.create(null) as Order;
   const oldParent = parentPath(oldPath),
     newParent = parentPath(newPath);
   for (const [key, names] of Object.entries(order)) {
     const path =
-      key === oldPath || key.startsWith(oldPath + '/')
-        ? newPath + key.slice(oldPath.length)
-        : key;
+      key === oldPath || key.startsWith(oldPath + "/") ? newPath + key.slice(oldPath.length) : key;
     let updated = [...names];
     if (key === oldParent)
       updated =
         oldParent === newParent
-          ? updated.map((n) =>
-              n === baseName(oldPath) ? baseName(newPath) : n,
-            )
+          ? updated.map((n) => (n === baseName(oldPath) ? baseName(newPath) : n))
           : updated.filter((n) => n !== baseName(oldPath));
     if (
       key === newParent &&
@@ -157,13 +140,10 @@ export function renameOrder(
   return next;
 }
 export function deleteOrder(order: Order, path: string): Order {
-  const next: Order = Object.create(null);
+  const next = Object.create(null) as Order;
   for (const [key, names] of Object.entries(order)) {
-    if (key === path || key.startsWith(path + '/')) continue;
-    next[key] =
-      key === parentPath(path)
-        ? names.filter((n) => n !== baseName(path))
-        : [...names];
+    if (key === path || key.startsWith(path + "/")) continue;
+    next[key] = key === parentPath(path) ? names.filter((n) => n !== baseName(path)) : [...names];
   }
   return next;
 }
@@ -175,10 +155,10 @@ export interface OrderAdapter {
   process(path: string, fn: (text: string) => string): Promise<string>;
 }
 export class OrderStore {
-  order: Order = Object.create(null);
+  order = Object.create(null) as Order;
   error: unknown = null;
   private tail: Promise<unknown> = Promise.resolve();
-  private lastText = '';
+  private lastText = "";
   constructor(
     readonly adapter: OrderAdapter,
     public path: string,
@@ -190,14 +170,12 @@ export class OrderStore {
     return task;
   }
   private async create(path: string, order: Order): Promise<void> {
-    const parts = path.split('/');
+    const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) {
-      const directory = parts.slice(0, i).join('/');
-      if (!(await this.adapter.exists(directory)))
-        await this.adapter.mkdir(directory);
+      const directory = parts.slice(0, i).join("/");
+      if (!(await this.adapter.exists(directory))) await this.adapter.mkdir(directory);
     }
-    if (!(await this.adapter.exists(path)))
-      await this.adapter.write(path, stringifyOrder(order));
+    if (!(await this.adapter.exists(path))) await this.adapter.write(path, stringifyOrder(order));
   }
   async load(): Promise<boolean> {
     return this.serial(async () => {
@@ -220,9 +198,7 @@ export class OrderStore {
     return this.serial(async () => {
       try {
         const text = await this.adapter.process(this.path, (current) =>
-          stringifyOrder(
-            withoutExcluded(change(parseOrder(current)), this.rules),
-          ),
+          stringifyOrder(withoutExcluded(change(parseOrder(current)), this.rules)),
         );
         this.order = withoutExcluded(parseOrder(text), this.rules);
         this.lastText = text;

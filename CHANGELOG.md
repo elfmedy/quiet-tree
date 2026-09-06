@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2
+
+- Fix the settings heading rejected by the Community directory scanner using Obsidian's native Setting heading component.
+- Use Obsidian DOM creation helpers, explicit sortable-row classes and scoped styles without `:has` or `!important`.
+- Validate editable settings and order data before using their values; preserve drag geometry, exclusion rules and ordering behavior.
+- Correct the minimum Obsidian version to 1.8.7, required by the language API.
+- Add the MIT license, a root lockfile and standard build layout, official lint checks and GitHub build attestations.
+
 ## 0.2.1
 
 First public release of Quiet Tree.

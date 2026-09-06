@@ -46,7 +46,7 @@ For manual installation, download those three release assets into your vault's `
 
 ## Compatibility
 
-- Tested on **Obsidian 1.13.7 / Windows**. The manifest declares Obsidian 1.8.0 as the minimum; older versions have not been verified.
+- Tested on **Obsidian 1.13.7 / Windows**. The manifest declares Obsidian 1.8.7 as the minimum; older versions have not been verified.
 - Uses native file explorer rows, virtualization, theme colors and selection state. Drag visuals are scoped to the active explorer, and reduced-motion preferences are respected.
 - Sorting integrates with an undocumented file explorer API. Future Obsidian updates may require changes; running multiple plugins that control the same sort order can conflict.
 - Touch gestures have been simulated in the desktop app. Physical Android and iOS devices and arbitrary third-party themes have not yet been tested.
@@ -58,14 +58,21 @@ For manual installation, download those three release assets into your vault's `
 Requires Node.js **22.13+** (Node.js 22 LTS recommended).
 
 ```sh
-npm ci --prefix obsidian-plugin
+npm ci
 npm run typecheck
+npm run lint
 npm test
 npm run build
 ```
 
-The three installable assets are generated in `obsidian-plugin/dist/`. Plugin code lives in `obsidian-plugin/src/`; shared tree and drag geometry code lives in `lib/`. Tests cover persistence, exclusions, moves, drop geometry and destination descriptions.
+The three installable assets are generated in `dist/`. Plugin code lives in `src/`; shared tree and drag geometry code lives in `lib/`. Tests cover persistence, exclusions, moves, drop geometry and destination descriptions.
 
-For a new release, update the root and plugin copies of `manifest.json` and `versions.json`, both package versions and the plugin lockfile. Commit the changes, then push a tag equal to the version, for example `0.2.2` (without `v`). GitHub Actions checks, builds and publishes the three BRAT assets automatically.
+For a new release, update `manifest.json`, `versions.json`, `package.json` and `package-lock.json`. Commit the changes, then push a tag equal to the version, for example `0.2.2` (without `v`). GitHub Actions checks, builds and publishes the three BRAT assets automatically.
 
 Please report reproducible issues through [GitHub Issues](https://github.com/elfmedy/quiet-tree/issues), including Obsidian version, platform, theme and steps to reproduce.
+
+## Privacy and license
+
+Quiet Tree runs locally. It reads folder paths for the directory picker and accesses the configured order file inside your vault. Cross-folder drops use Obsidian’s FileManager to move the selected item and update links. It does not read note contents for sorting, send network requests, collect telemetry or access files outside the vault.
+
+Licensed under the [MIT License](LICENSE).

@@ -19,18 +19,18 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: obsidian-plugin/package-lock.json
-      - run: npm ci --prefix obsidian-plugin
+      - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: quiet-tree
           path: |
-            obsidian-plugin/dist/main.js
-            obsidian-plugin/dist/manifest.json
-            obsidian-plugin/dist/styles.css
+            dist/main.js
+            dist/manifest.json
+            dist/styles.css
           if-no-files-found: error
 
   release:
@@ -39,11 +39,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: quiet-tree
           path: dist
+      - uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/main.js
+            dist/manifest.json
+            dist/styles.css
       - name: Publish BRAT assets
         env:
           GH_TOKEN: ${{ github.token }}

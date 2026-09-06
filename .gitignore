@@ -7,3 +7,4 @@ test-results/
 .DS_Store
 sort-order.json
 data.json
+/main.js

@@ -1,9 +1,0 @@
-{
-  "id": "quiet-tree",
-  "name": "Quiet Tree",
-  "version": "0.2.1",
-  "minAppVersion": "1.8.0",
-  "description": "Arrange the native file explorer with deliberate dragging, clear tree drop targets, and editable JSON ordering.",
-  "author": "elfmedy",
-  "isDesktopOnly": false
-}

@@ -1,25 +1,16 @@
-import { setIcon } from 'obsidian';
-import {
-  emptyHit,
-  normalizeHit,
-  resolveTreeHit,
-  type DragHit,
-} from '../../lib/drag-hit-test';
-import {
-  makeBoundaryPicker,
-  pickerHit,
-  type BoundaryPicker,
-} from '../../lib/drag-geometry';
-import { targetKey } from '../../lib/explorer-model';
-import type QuietTreePlugin from './main';
-import { snapshot, type NativeExplorer, type Snapshot } from './native';
-import { excluded, parentPath } from './order';
-import { destinationLabel, displayName } from './presentation';
+import { setIcon } from "obsidian";
+import { emptyHit, normalizeHit, resolveTreeHit, type DragHit } from "../lib/drag-hit-test";
+import { makeBoundaryPicker, pickerHit, type BoundaryPicker } from "../lib/drag-geometry";
+import { targetKey } from "../lib/explorer-model";
+import type QuietTreePlugin from "./main";
+import { snapshot, type NativeExplorer, type Snapshot } from "./native";
+import { excluded, parentPath } from "./order";
+import { destinationLabel, displayName } from "./presentation";
 
 type Press = {
   id: string;
   el: HTMLElement;
-  input: 'mouse' | 'touch';
+  input: "mouse" | "touch";
   startX: number;
   startY: number;
   x: number;
@@ -33,6 +24,7 @@ const ROW = 28;
 export class DragController {
   private doc: Document;
   private win: Window;
+  private dom: Pick<typeof window, "createEl" | "createSpan" | "createDiv">;
   private root: HTMLElement;
   private observer: MutationObserver;
   private disposers: (() => void)[] = [];
@@ -46,9 +38,9 @@ export class DragController {
   private progress?: HTMLElement;
   private pickerEl?: HTMLElement;
   private picker: BoundaryPicker | null = null;
-  private pickerKey = '';
+  private pickerKey = "";
   private pickerSince = 0;
-  private hoverId = '';
+  private hoverId = "";
   private hoverSince = 0;
   private timer = 0;
   private frame = 0;
@@ -63,58 +55,53 @@ export class DragController {
     this.root = view.navFileContainerEl;
     this.doc = this.root.ownerDocument;
     this.win = this.doc.defaultView!;
-    this.root.classList.add('qt-explorer');
-    this.listen(
-      this.root,
-      'pointerdown',
-      (e) => this.pointerDown(e as PointerEvent),
-      { capture: true },
-    );
+    // Obsidian installs these global helpers separately in each document's window.
+    this.dom = this.win as Window & typeof this.dom;
+    this.root.classList.add("qt-explorer");
+    this.listen(this.root, "pointerdown", (e) => this.pointerDown(e as PointerEvent), {
+      capture: true,
+    });
     this.listen(
       this.doc,
-      'pointermove',
+      "pointermove",
       (e) => {
         const p = e as PointerEvent;
-        if (this.press?.input === 'mouse' && p.pointerId === this.press.pointer)
+        if (this.press?.input === "mouse" && p.pointerId === this.press.pointer)
           this.move(p.clientX, p.clientY, p);
       },
       { capture: true, passive: false },
     );
     this.listen(
       this.doc,
-      'pointerup',
+      "pointerup",
       (e) => {
         const p = e as PointerEvent;
-        if (this.press?.input === 'mouse' && p.pointerId === this.press.pointer)
+        if (this.press?.input === "mouse" && p.pointerId === this.press.pointer)
           this.end(p.clientX, p.clientY, p);
       },
       { capture: true },
     );
     this.listen(
       this.doc,
-      'pointercancel',
+      "pointercancel",
       (e) => {
-        if ((e as PointerEvent).pointerType !== 'touch') this.cancel();
+        if ((e as PointerEvent).pointerType !== "touch") this.cancel();
       },
       { capture: true },
     );
     // Touch Events preserve native scrolling until long-press activation. Pointer Events
     // alone get cancelled by the browser when a scroll begins (touch-action:auto).
-    this.listen(
-      this.root,
-      'touchstart',
-      (e) => this.touchStart(e as TouchEvent),
-      { capture: true, passive: true },
-    );
+    this.listen(this.root, "touchstart", (e) => this.touchStart(e as TouchEvent), {
+      capture: true,
+      passive: true,
+    });
     this.listen(
       this.doc,
-      'touchmove',
+      "touchmove",
       (e) => {
         const event = e as TouchEvent;
-        if (this.press?.input !== 'touch') return;
-        const touch = Array.from(event.touches).find(
-          (t) => t.identifier === this.press?.pointer,
-        );
+        if (this.press?.input !== "touch") return;
+        const touch = Array.from(event.touches).find((t) => t.identifier === this.press?.pointer);
         if (event.touches.length !== 1 || !touch) {
           this.cancel();
           return;
@@ -125,10 +112,10 @@ export class DragController {
     );
     this.listen(
       this.doc,
-      'touchend',
+      "touchend",
       (e) => {
         const event = e as TouchEvent;
-        if (this.press?.input !== 'touch') return;
+        if (this.press?.input !== "touch") return;
         const touch = Array.from(event.changedTouches).find(
           (t) => t.identifier === this.press?.pointer,
         );
@@ -136,12 +123,12 @@ export class DragController {
       },
       { capture: true, passive: false },
     );
-    this.listen(this.doc, 'touchcancel', () => this.cancel(), {
+    this.listen(this.doc, "touchcancel", () => this.cancel(), {
       capture: true,
     });
     this.listen(
       this.root,
-      'dragstart',
+      "dragstart",
       (e) => {
         if (this.press) {
           e.preventDefault();
@@ -152,12 +139,9 @@ export class DragController {
     );
     this.listen(
       this.root,
-      'click',
+      "click",
       (e) => {
-        if (
-          Date.now() < this.suppressClickUntil ||
-          (e.target as Element).closest('.qt-handle')
-        ) {
+        if (Date.now() < this.suppressClickUntil || (e.target as Element).closest(".qt-handle")) {
           e.preventDefault();
           e.stopImmediatePropagation();
         }
@@ -166,11 +150,11 @@ export class DragController {
     );
     this.listen(
       this.root,
-      'contextmenu',
+      "contextmenu",
       (e) => {
         if (
           this.press?.active ||
-          (this.press?.input === 'touch' && Date.now() - this.press.time > 150)
+          (this.press?.input === "touch" && Date.now() - this.press.time > 150)
         ) {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -180,10 +164,10 @@ export class DragController {
     );
     this.listen(
       this.doc,
-      'keydown',
+      "keydown",
       (e) => {
         const event = e as KeyboardEvent;
-        if (event.key === 'Escape' && this.press) {
+        if (event.key === "Escape" && this.press) {
           event.preventDefault();
           event.stopImmediatePropagation();
           this.cancel();
@@ -191,17 +175,15 @@ export class DragController {
       },
       { capture: true },
     );
-    this.listen(this.root, 'keydown', (e) =>
-      this.handleKey(e as KeyboardEvent),
-    );
-    this.listen(this.win, 'blur', () => this.cancel());
-    this.listen(this.win, 'resize', () => this.cancel());
-    this.listen(this.doc, 'visibilitychange', () => {
+    this.listen(this.root, "keydown", (e) => this.handleKey(e as KeyboardEvent));
+    this.listen(this.win, "blur", () => this.cancel());
+    this.listen(this.win, "resize", () => this.cancel());
+    this.listen(this.doc, "visibilitychange", () => {
       if (this.doc.hidden) this.cancel();
     });
     this.listen(
       this.root,
-      'scroll',
+      "scroll",
       () => {
         if (this.press && !this.press.active) this.cancel();
         this.picker = null;
@@ -229,56 +211,46 @@ export class DragController {
   }
   decorate() {
     this.root.dataset.qtTrigger = this.plugin.settings.trigger;
-    for (const el of this.root.querySelectorAll<HTMLElement>(
-      '.tree-item-self[data-path]',
-    )) {
+    for (const el of this.root.querySelectorAll<HTMLElement>(".tree-item-self[data-path]")) {
       const path = el.dataset.path!;
       const allowed =
         !this.view.searchQuery &&
-        path !== '/' &&
+        path !== "/" &&
         !excluded(parentPath(path), this.plugin.settings.excluded) &&
         path !== this.plugin.settings.jsonPath;
-      let handle = el.querySelector<HTMLElement>(':scope > .qt-handle');
+      let handle = el.querySelector<HTMLElement>(":scope > .qt-handle");
+      el.classList.toggle("qt-sortable", allowed);
       if (!allowed) {
         handle?.remove();
         continue;
       }
       if (!handle) {
-        handle = this.doc.createElement('span');
-        handle.className = 'qt-handle';
-        handle.setAttribute('role', 'button');
+        handle = this.dom.createSpan();
+        handle.className = "qt-handle";
+        handle.setAttribute("role", "button");
         handle.tabIndex = 0;
-        setIcon(handle, 'grip-vertical');
+        setIcon(handle, "grip-vertical");
         el.append(handle);
       }
-      handle.setAttribute('aria-label', `${this.plugin.t('hold')}: ${path}`);
+      handle.setAttribute("aria-label", `${this.plugin.t("hold")}: ${path}`);
     }
   }
   private eligible(target: EventTarget | null): HTMLElement | null {
     const element = target as Element | null;
     if (
       !element?.closest ||
-      element.closest('input,textarea,[contenteditable=true],.collapse-icon')
+      element.closest("input,textarea,[contenteditable=true],.collapse-icon")
     )
       return null;
     if (this.view.searchQuery) return null; // Filtered trees have ambiguous hidden siblings.
-    const row = element.closest<HTMLElement>('.tree-item-self[data-path]');
-    if (
-      !row ||
-      !this.root.contains(row) ||
-      !row.querySelector(':scope > .qt-handle')
-    )
-      return null;
-    if (
-      this.plugin.settings.trigger === 'handle' &&
-      !element.closest('.qt-handle')
-    )
-      return null;
+    const row = element.closest<HTMLElement>(".tree-item-self[data-path]");
+    if (!row || !this.root.contains(row) || !row.querySelector(":scope > .qt-handle")) return null;
+    if (this.plugin.settings.trigger === "handle" && !element.closest(".qt-handle")) return null;
     return row;
   }
   private pointerDown(event: PointerEvent) {
     if (
-      event.pointerType === 'touch' ||
+      event.pointerType === "touch" ||
       event.button !== 0 ||
       !event.isPrimary ||
       event.ctrlKey ||
@@ -288,8 +260,7 @@ export class DragController {
     )
       return;
     const row = this.eligible(event.target);
-    if (row)
-      this.begin(row, event.clientX, event.clientY, 'mouse', event.pointerId);
+    if (row) this.begin(row, event.clientX, event.clientY, "mouse", event.pointerId);
   }
   private touchStart(event: TouchEvent) {
     if (event.touches.length !== 1) {
@@ -298,16 +269,9 @@ export class DragController {
     }
     const row = this.eligible(event.target),
       touch = event.touches[0];
-    if (row)
-      this.begin(row, touch.clientX, touch.clientY, 'touch', touch.identifier);
+    if (row) this.begin(row, touch.clientX, touch.clientY, "touch", touch.identifier);
   }
-  private begin(
-    el: HTMLElement,
-    x: number,
-    y: number,
-    input: 'mouse' | 'touch',
-    pointer: number,
-  ) {
+  private begin(el: HTMLElement, x: number, y: number, input: "mouse" | "touch", pointer: number) {
     this.cancel();
     this.press = {
       id: el.dataset.path!,
@@ -322,21 +286,17 @@ export class DragController {
       pointer,
     };
     const delay =
-      input === 'touch'
+      input === "touch"
         ? this.plugin.settings.delay
         : Math.max(180, this.plugin.settings.delay * 0.52);
-    el.style.setProperty('--qt-delay', `${delay}ms`);
-    this.progress = this.doc.createElement('span');
-    this.progress.className = 'qt-hold-progress';
-    this.progress.setAttribute('aria-hidden', 'true');
+    el.style.setProperty("--qt-delay", `${delay}ms`);
+    this.progress = this.dom.createSpan();
+    this.progress.className = "qt-hold-progress";
+    this.progress.setAttribute("aria-hidden", "true");
     el.append(this.progress);
-    el.classList.add('qt-pressing');
+    el.classList.add("qt-pressing");
     this.timer = this.win.setTimeout(() => {
-      if (
-        this.press &&
-        (input === 'touch' ||
-          Math.hypot(this.press.x - x, this.press.y - y) >= 4)
-      )
+      if (this.press && (input === "touch" || Math.hypot(this.press.x - x, this.press.y - y) >= 4))
         this.activate();
     }, delay);
   }
@@ -351,30 +311,24 @@ export class DragController {
     p.active = true;
     this.progress?.remove();
     this.progress = undefined;
-    p.el.classList.remove('qt-pressing');
-    p.el.classList.add('qt-source');
-    this.root.classList.add('qt-dragging');
+    p.el.classList.remove("qt-pressing");
+    p.el.classList.add("qt-source");
+    this.root.classList.add("qt-dragging");
     // A temporary hit surface prevents native hover/title tooltips without
     // modifying global tooltip behavior or another plugin's event handlers.
     this.view.onFilePointerout?.(
-      new PointerEvent('pointerout', { relatedTarget: this.root }),
+      new PointerEvent("pointerout", { relatedTarget: this.root }),
       p.el,
     );
-    this.surface = this.doc.createElement('div');
-    this.surface.className = 'qt-drag-surface';
-    this.surface.setAttribute('aria-hidden', 'true');
-    this.surface.addEventListener('contextmenu', (event) =>
-      event.preventDefault(),
-    );
+    this.surface = this.dom.createDiv();
+    this.surface.className = "qt-drag-surface";
+    this.surface.setAttribute("aria-hidden", "true");
+    this.surface.addEventListener("contextmenu", (event) => event.preventDefault());
     this.surface.addEventListener(
-      'wheel',
+      "wheel",
       (event) => {
         const scale =
-          event.deltaMode === 1
-            ? ROW
-            : event.deltaMode === 2
-              ? this.root.clientHeight
-              : 1;
+          event.deltaMode === 1 ? ROW : event.deltaMode === 2 ? this.root.clientHeight : 1;
         this.root.scrollTop += event.deltaY * scale;
         event.preventDefault();
       },
@@ -382,41 +336,38 @@ export class DragController {
     );
     this.doc.body.append(this.surface);
     this.doc.getSelection()?.removeAllRanges();
-    this.ghost = this.doc.createElement('div');
-    this.ghost.className = 'qt-ghost';
-    this.ghost.setAttribute('aria-hidden', 'true');
+    this.ghost = this.dom.createDiv();
+    this.ghost.className = "qt-ghost";
+    this.ghost.setAttribute("aria-hidden", "true");
     this.ghost.style.width = `${Math.min(280, Math.max(220, p.el.getBoundingClientRect().width))}px`;
-    const card = this.doc.createElement('div');
-    card.className = 'qt-ghost-card';
-    const grip = this.doc.createElement('span');
-    grip.className = 'qt-ghost-grip';
-    setIcon(grip, 'grip-vertical');
-    const icon = this.doc.createElement('span');
-    icon.className = 'qt-ghost-icon';
-    setIcon(
-      icon,
-      this.data.tree.nodes[p.id].kind === 'folder' ? 'folder' : 'file-text',
-    );
-    const title = this.doc.createElement('strong');
+    const card = this.dom.createDiv();
+    card.className = "qt-ghost-card";
+    const grip = this.dom.createSpan();
+    grip.className = "qt-ghost-grip";
+    setIcon(grip, "grip-vertical");
+    const icon = this.dom.createSpan();
+    icon.className = "qt-ghost-icon";
+    setIcon(icon, this.data.tree.nodes[p.id].kind === "folder" ? "folder" : "file-text");
+    const title = this.dom.createEl("strong");
     title.textContent = displayName(this.data.tree.nodes[p.id].name);
-    const badge = this.doc.createElement('span');
-    badge.className = 'qt-ghost-badge';
-    badge.textContent = this.plugin.t('lifted');
+    const badge = this.dom.createSpan();
+    badge.className = "qt-ghost-badge";
+    badge.textContent = this.plugin.t("lifted");
     card.append(grip, icon, title, badge);
-    const label = this.doc.createElement('span');
-    label.className = 'qt-ghost-label';
+    const label = this.dom.createSpan();
+    label.className = "qt-ghost-label";
     label.hidden = true;
     this.ghost.append(card, label);
     this.doc.body.append(this.ghost);
-    this.line = this.doc.createElement('div');
-    this.line.className = 'qt-drop-line';
+    this.line = this.dom.createDiv();
+    this.line.className = "qt-drop-line";
     this.doc.body.append(this.line);
-    this.guide = this.doc.createElement('div');
-    this.guide.className = 'qt-parent-guide';
-    this.guide.setAttribute('aria-hidden', 'true');
+    this.guide = this.dom.createDiv();
+    this.guide.className = "qt-parent-guide";
+    this.guide.setAttribute("aria-hidden", "true");
     this.doc.body.append(this.guide);
-    this.pickerEl = this.doc.createElement('div');
-    this.pickerEl.className = 'qt-picker';
+    this.pickerEl = this.dom.createDiv();
+    this.pickerEl.className = "qt-picker";
     this.pickerEl.hidden = true;
     this.doc.body.append(this.pickerEl);
     this.tick();
@@ -428,12 +379,12 @@ export class DragController {
     p.y = y;
     const distance = Math.hypot(x - p.startX, y - p.startY);
     if (!p.active) {
-      if (p.input === 'touch' && distance > 8) {
+      if (p.input === "touch" && distance > 8) {
         this.cancel();
         return;
       }
       if (
-        p.input === 'mouse' &&
+        p.input === "mouse" &&
         distance >= 4 &&
         Date.now() - p.time >= Math.max(180, this.plugin.settings.delay * 0.52)
       )
@@ -446,19 +397,13 @@ export class DragController {
   }
   private measured(): Measured[] {
     if (!this.data) return [];
-    const indexes = new Map(
-      this.data.rows.map((row, index) => [row.id, index]),
-    );
-    return Array.from(
-      this.root.querySelectorAll<HTMLElement>('.tree-item-self[data-path]'),
-    )
+    const indexes = new Map(this.data.rows.map((row, index) => [row.id, index]));
+    return Array.from(this.root.querySelectorAll<HTMLElement>(".tree-item-self[data-path]"))
       .flatMap((el) => {
         const id = el.dataset.path!,
           index = indexes.get(id),
           rect = el.getBoundingClientRect();
-        return index !== undefined && rect.height > 0
-          ? [{ id, index, el, rect }]
-          : [];
+        return index !== undefined && rect.height > 0 ? [{ id, index, el, rect }] : [];
       })
       .sort((a, b) => a.index - b.index);
   }
@@ -491,7 +436,7 @@ export class DragController {
       );
       if (choice !== null) {
         kept = true;
-        if (typeof choice === 'number')
+        if (typeof choice === "number")
           this.hit = normalizeHit(data.tree, data.rows, p.id, {
             ...this.hit,
             target: this.hit.candidates[choice],
@@ -499,19 +444,14 @@ export class DragController {
           });
       } else {
         this.picker = null;
-        this.pickerKey = '';
+        this.pickerKey = "";
       }
     }
     if (!kept) {
-      if (
-        p.x < bounds.left ||
-        p.x > bounds.right ||
-        p.y < bounds.top ||
-        p.y > bounds.bottom
-      ) {
+      if (p.x < bounds.left || p.x > bounds.right || p.y < bounds.top || p.y > bounds.bottom) {
         this.hit = emptyHit;
         this.picker = null;
-        this.pickerKey = '';
+        this.pickerKey = "";
         this.paint(measured);
         return;
       }
@@ -521,8 +461,7 @@ export class DragController {
           ? row
           : best,
       );
-      const logicalY =
-        (closest.index + (p.y - closest.rect.top) / closest.rect.height) * ROW;
+      const logicalY = (closest.index + (p.y - closest.rect.top) / closest.rect.height) * ROW;
       this.hit = resolveTreeHit(
         data.tree,
         data.rows,
@@ -534,11 +473,11 @@ export class DragController {
       );
       if (
         this.hit.target &&
-        excluded(this.hit.target.parentId ?? '/', this.plugin.settings.excluded)
+        excluded(this.hit.target.parentId ?? "/", this.plugin.settings.excluded)
       )
-        this.hit = { ...emptyHit, invalid: this.plugin.t('locked') };
+        this.hit = { ...emptyHit, invalid: this.plugin.t("locked") };
       if (this.hit.band && this.hit.candidates.length > 1) {
-        const key = `${this.hit.band.gap}:${this.hit.candidates.map(targetKey).join('|')}`;
+        const key = `${this.hit.band.gap}:${this.hit.candidates.map(targetKey).join("|")}`;
         if (key !== this.pickerKey) {
           this.pickerKey = key;
           this.pickerSince = Date.now();
@@ -559,23 +498,17 @@ export class DragController {
           );
         }
       } else {
-        this.pickerKey = '';
+        this.pickerKey = "";
         this.picker = null;
       }
     }
-    if (
-      this.hit.target &&
-      excluded(this.hit.target.parentId ?? '/', this.plugin.settings.excluded)
-    )
+    if (this.hit.target && excluded(this.hit.target.parentId ?? "/", this.plugin.settings.excluded))
       this.hit = {
         ...this.hit,
         target: null,
-        invalid: this.plugin.t('locked'),
+        invalid: this.plugin.t("locked"),
       };
-    const folder =
-      this.hit.target?.kind === 'inside'
-        ? (this.hit.target.parentId ?? '')
-        : '';
+    const folder = this.hit.target?.kind === "inside" ? (this.hit.target.parentId ?? "") : "";
     if (folder !== this.hoverId) {
       this.hoverId = folder;
       this.hoverSince = Date.now();
@@ -608,32 +541,26 @@ export class DragController {
     const width = this.ghost!.getBoundingClientRect().width;
     const x = Math.max(
       8,
-      Math.min(
-        p.input === 'touch' ? p.x - width / 2 : p.x + 16,
-        this.win.innerWidth - width - 8,
-      ),
+      Math.min(p.input === "touch" ? p.x - width / 2 : p.x + 16, this.win.innerWidth - width - 8),
     );
     const y = Math.max(
       8,
-      Math.min(
-        p.y + (p.input === 'touch' ? -64 : 14),
-        this.win.innerHeight - 76,
-      ),
+      Math.min(p.y + (p.input === "touch" ? -64 : 14), this.win.innerHeight - 76),
     );
     this.ghost!.style.transform = `translate3d(${x}px,${y}px,0)`;
     // Position is shown on the tree. Only errors need an additional message.
-    const text = this.hit.invalid ? this.plugin.t('invalid') : '';
-    const label = this.ghost!.querySelector('.qt-ghost-label')!;
+    const text = this.hit.invalid ? this.plugin.t("invalid") : "";
+    const label = this.ghost!.querySelector(".qt-ghost-label")!;
     if (label.textContent !== text) label.textContent = text;
     (label as HTMLElement).hidden = !text;
-    this.activeFolder?.classList.remove('qt-inside');
+    this.activeFolder?.classList.remove("qt-inside");
     this.activeFolder = undefined;
     const target = this.hit.target;
     const lineY = this.gapY(rows);
     this.line!.hidden =
       !target ||
       this.hit.noOp ||
-      target.kind === 'inside' ||
+      target.kind === "inside" ||
       lineY < bounds.top ||
       lineY > bounds.bottom;
     this.guide!.hidden = true;
@@ -644,10 +571,10 @@ export class DragController {
         (row) => this.data!.tree.nodes[row.id].parentId === target.parentId,
       );
       const anchor = sibling?.el
-        .querySelector<HTMLElement>('.tree-item-inner')
+        .querySelector<HTMLElement>(".tree-item-inner")
         ?.getBoundingClientRect();
       const parentAnchor = parent?.el
-        .querySelector<HTMLElement>('.tree-item-inner')
+        .querySelector<HTMLElement>(".tree-item-inner")
         ?.getBoundingClientRect();
       const left = Math.max(
         bounds.left + 8,
@@ -662,13 +589,8 @@ export class DragController {
             rows.find((row) => row.rect.bottom > bounds.top)?.rect.top ??
             bounds.top,
         );
-        const descendants = rows.filter((row) =>
-          row.id.startsWith(target.parentId! + '/'),
-        );
-        const bottom = Math.min(
-          bounds.bottom,
-          descendants.at(-1)?.rect.bottom ?? lineY,
-        );
+        const descendants = rows.filter((row) => row.id.startsWith(target.parentId! + "/"));
+        const bottom = Math.min(bounds.bottom, descendants.at(-1)?.rect.bottom ?? lineY);
         this.guide!.hidden = top >= bottom;
         Object.assign(this.guide!.style, {
           left: `${left}px`,
@@ -676,9 +598,9 @@ export class DragController {
           height: `${Math.max(0, bottom - top)}px`,
         });
       }
-      if (target.kind === 'inside') {
+      if (target.kind === "inside") {
         this.activeFolder = rows.find((row) => row.id === target.parentId)?.el;
-        this.activeFolder?.classList.add('qt-inside');
+        this.activeFolder?.classList.add("qt-inside");
       }
     }
     this.pickerEl!.hidden = !this.picker;
@@ -689,53 +611,44 @@ export class DragController {
         top: `${picker.top}px`,
         width: `${picker.width}px`,
       });
-      const key = this.hit.candidates.map(targetKey).join('|');
+      const key = this.hit.candidates.map(targetKey).join("|");
       if (this.pickerEl!.dataset.key !== key) {
         this.pickerEl!.dataset.key = key;
         this.pickerEl!.replaceChildren();
-        const heading = this.doc.createElement('div');
-        heading.className = 'qt-picker-heading';
-        const headingIcon = this.doc.createElement('span');
-        setIcon(headingIcon, 'layers');
-        const headingTitle = this.doc.createElement('span');
-        headingTitle.textContent = this.plugin.t('choose');
-        const hint = this.doc.createElement('small');
-        hint.textContent = this.plugin.t('chooseHint');
+        const heading = this.dom.createDiv();
+        heading.className = "qt-picker-heading";
+        const headingIcon = this.dom.createSpan();
+        setIcon(headingIcon, "layers");
+        const headingTitle = this.dom.createSpan();
+        headingTitle.textContent = this.plugin.t("choose");
+        const hint = this.dom.createEl("small");
+        hint.textContent = this.plugin.t("chooseHint");
         heading.append(headingIcon, headingTitle, hint);
         this.pickerEl!.append(heading);
         for (const candidate of this.hit.candidates) {
-          const option = this.doc.createElement('div');
-          option.className = 'qt-picker-option';
-          const description = destinationLabel(
-            this.data!.tree,
-            candidate,
-            p.id,
-            this.plugin.t,
-          );
-          const icon = this.doc.createElement('span');
-          icon.className = 'qt-picker-icon';
-          setIcon(icon, 'corner-down-right');
-          const text = this.doc.createElement('div');
-          text.className = 'qt-picker-text';
-          const name = this.doc.createElement('strong');
+          const option = this.dom.createDiv();
+          option.className = "qt-picker-option";
+          const description = destinationLabel(this.data!.tree, candidate, p.id, this.plugin.t);
+          const icon = this.dom.createSpan();
+          icon.className = "qt-picker-icon";
+          setIcon(icon, "corner-down-right");
+          const text = this.dom.createDiv();
+          text.className = "qt-picker-text";
+          const name = this.dom.createEl("strong");
           name.textContent = description.directory;
           name.title = description.path;
-          const position = this.doc.createElement('span');
+          const position = this.dom.createSpan();
           position.textContent = description.position;
           text.append(name, position);
-          const check = this.doc.createElement('span');
-          check.className = 'qt-picker-check';
-          setIcon(check, 'check');
+          const check = this.dom.createSpan();
+          check.className = "qt-picker-check";
+          setIcon(check, "check");
           option.append(icon, text, check);
           this.pickerEl!.append(option);
         }
       }
-      Array.from(this.pickerEl!.querySelectorAll('.qt-picker-option')).forEach(
-        (option, index) =>
-          option.classList.toggle(
-            'is-selected',
-            index === this.hit.band?.choice,
-          ),
+      Array.from(this.pickerEl!.querySelectorAll(".qt-picker-option")).forEach((option, index) =>
+        option.classList.toggle("is-selected", index === this.hit.band?.choice),
       );
     }
   }
@@ -779,11 +692,11 @@ export class DragController {
   }
   private handleKey(event: KeyboardEvent) {
     if (
-      !(event.target as Element).closest('.qt-handle') ||
-      !['ArrowUp', 'ArrowDown'].includes(event.key)
+      !(event.target as Element).closest(".qt-handle") ||
+      !["ArrowUp", "ArrowDown"].includes(event.key)
     )
       return;
-    const row = (event.target as Element).closest<HTMLElement>('[data-path]');
+    const row = (event.target as Element).closest<HTMLElement>("[data-path]");
     if (!row) return;
     event.preventDefault();
     event.stopPropagation();
@@ -791,34 +704,31 @@ export class DragController {
       id = row.dataset.path!,
       node = data.tree.nodes[id];
     if (!node) return;
-    const ids = node.parentId
-        ? data.tree.nodes[node.parentId].children
-        : data.tree.roots,
+    const ids = node.parentId ? data.tree.nodes[node.parentId].children : data.tree.roots,
       index = ids.indexOf(id);
     if (
-      (event.key === 'ArrowUp' && index === 0) ||
-      (event.key === 'ArrowDown' && index === ids.length - 1)
+      (event.key === "ArrowUp" && index === 0) ||
+      (event.key === "ArrowDown" && index === ids.length - 1)
     )
       return;
     void this.plugin.move(this.view, id, {
       parentId: node.parentId,
-      beforeId:
-        event.key === 'ArrowUp' ? ids[index - 1] : (ids[index + 2] ?? null),
+      beforeId: event.key === "ArrowUp" ? ids[index - 1] : (ids[index + 2] ?? null),
       depth: 0,
-      kind: 'insert',
+      kind: "insert",
     });
   }
   cancel() {
     if (this.press?.active) this.suppressClickUntil = Date.now() + 500;
     this.win.clearTimeout(this.timer);
     this.win.cancelAnimationFrame(this.frame);
-    this.press?.el.classList.remove('qt-pressing', 'qt-source');
-    this.press?.el.style.removeProperty('--qt-delay');
+    this.press?.el.classList.remove("qt-pressing", "qt-source");
+    this.press?.el.style.removeProperty("--qt-delay");
     this.progress?.remove();
     this.progress = undefined;
-    this.activeFolder?.classList.remove('qt-inside');
+    this.activeFolder?.classList.remove("qt-inside");
     this.activeFolder = undefined;
-    this.root.classList.remove('qt-dragging');
+    this.root.classList.remove("qt-dragging");
     this.surface?.remove();
     this.surface = undefined;
     this.guide?.remove();
@@ -831,8 +741,8 @@ export class DragController {
     this.data = null;
     this.hit = emptyHit;
     this.picker = null;
-    this.pickerKey = '';
-    this.hoverId = '';
+    this.pickerKey = "";
+    this.hoverId = "";
   }
   destroy() {
     if (this.destroyed) return;
@@ -841,10 +751,11 @@ export class DragController {
     this.observer.disconnect();
     this.win.cancelAnimationFrame(this.decorateFrame);
     this.disposers.forEach((fn) => fn());
+    this.root.querySelectorAll(".qt-handle").forEach((handle) => handle.remove());
     this.root
-      .querySelectorAll('.qt-handle')
-      .forEach((handle) => handle.remove());
-    this.root.classList.remove('qt-explorer');
+      .querySelectorAll(".qt-sortable")
+      .forEach((row) => row.classList.remove("qt-sortable"));
+    this.root.classList.remove("qt-explorer");
     delete this.root.dataset.qtTrigger;
   }
 }
