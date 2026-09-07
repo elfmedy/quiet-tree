@@ -1,4 +1,4 @@
-.qt-explorer .tree-item-self.qt-sortable {
+.qt-explorer[data-qt-trigger='handle'] .tree-item-self.qt-sortable {
   position: relative;
   padding-inline-end: 28px;
 }
@@ -21,18 +21,12 @@
   width: 15px;
   height: 15px;
 }
-.qt-hold-progress {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: var(--interactive-accent);
-  transform: scaleX(0);
-  transform-origin: left;
-  animation: qt-hold var(--qt-delay, 350ms) linear forwards;
-  pointer-events: none;
-  border-radius: 2px;
+.qt-explorer[data-qt-trigger='row'] .qt-sortable,
+.qt-explorer[data-qt-trigger='row'] .qt-sortable *,
+.qt-explorer[data-qt-trigger='handle'] .qt-handle,
+.qt-explorer[data-qt-trigger='handle'] .qt-handle * {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 .qt-explorer.qt-dragging .tree-item-self:not(.qt-inside) {
   background: transparent;
@@ -127,8 +121,23 @@
   margin: 4px 0;
 }
 .qt-settings .qt-path-field {
-  padding: 0;
-  border: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.qt-settings .qt-exclusions-field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+.qt-settings .qt-exclusions-field > .setting-item-control {
+  display: block;
+  width: 100%;
+}
+.qt-settings .qt-delay-value {
+  white-space: nowrap;
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
 }
 .qt-settings .qt-path-field .setting-item-control {
   flex: 1;
@@ -194,22 +203,7 @@
 .qt-settings .qt-text-button:hover {
   color: var(--text-accent);
 }
-@keyframes qt-hold {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .qt-hold-progress {
-    animation: none;
-    transform: scaleX(1);
-  }
-}
 .qt-explorer[data-qt-trigger='handle'] .qt-handle,
-.qt-explorer .tree-item-self:hover > .qt-handle,
 .qt-handle:focus-visible {
   opacity: 0.8;
 }
@@ -466,7 +460,6 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .qt-explorer .qt-pressing,
   .qt-ghost,
   .qt-ghost-card,
   .qt-picker {

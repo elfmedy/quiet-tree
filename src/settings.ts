@@ -1,15 +1,17 @@
 import {
   FuzzySuggestModal,
   PluginSettingTab,
+  Platform,
   Setting,
   Notice,
   TFolder,
   setIcon,
+  requireApiVersion,
   type App,
+  type SettingDefinitionItem,
 } from "obsidian";
 import type QuietTreePlugin from "./main";
 import { orderPath, parseExclusions } from "./order";
-import type { TextKey } from "./i18n";
 
 class FolderPicker extends FuzzySuggestModal<TFolder> {
   constructor(
@@ -23,12 +25,11 @@ class FolderPicker extends FuzzySuggestModal<TFolder> {
   getItems(): TFolder[] {
     const folders: TFolder[] = [];
     const visit = (parent: TFolder) => {
-      for (const child of parent.children) {
+      for (const child of parent.children)
         if (child instanceof TFolder) {
           folders.push(child);
           visit(child);
         }
-      }
     };
     visit(this.app.vault.getRoot());
     return folders;
@@ -41,6 +42,17 @@ class FolderPicker extends FuzzySuggestModal<TFolder> {
   }
 }
 
+interface Row {
+  name: string;
+  desc?: string;
+  aliases?: string[];
+  render: (setting: Setting) => void;
+}
+interface Group {
+  heading: string;
+  items: Row[];
+}
+
 export class ExplorerSettingsTab extends PluginSettingTab {
   constructor(
     app: App,
@@ -48,79 +60,137 @@ export class ExplorerSettingsTab extends PluginSettingTab {
   ) {
     super(app, plugin);
   }
-  private section(name: TextKey, help?: TextKey): HTMLElement {
-    const section = this.containerEl.createDiv({ cls: "qt-section" });
-    const header = section.createDiv({ cls: "qt-section-header" });
-    new Setting(header).setName(this.plugin.t(name)).setHeading();
-    if (help) {
-      const explanation = section.createEl("ul", {
-        cls: "qt-help",
-      });
-      for (const text of this.plugin.t(help).split("\n")) explanation.createEl("li", { text });
-      explanation.hidden = true;
-      const button = header.createEl("button", {
-        cls: "clickable-icon qt-help-toggle",
-        attr: {
-          "aria-label": this.plugin.t("details"),
-          "aria-expanded": "false",
-        },
-      });
-      setIcon(button, "info");
-      button.addEventListener("click", () => {
-        explanation.hidden = !explanation.hidden;
-        button.setAttribute("aria-expanded", String(!explanation.hidden));
-      });
-    }
-    return section;
-  }
-  private async exclusions(next: string[]): Promise<void> {
-    const p = this.plugin,
-      previous = p.store.rules;
-    p.cancelDrags();
-    p.store.rules = next;
-    try {
-      await p.store.update((order) => order);
-      p.settings.excluded = next;
-      await p.saveSettings();
-      p.refresh();
-      this.renderSettings();
-    } catch (error) {
-      p.store.rules = previous;
-      p.report(error);
-    }
+
+  // Share definitions with the fallback renderer for Obsidian before 1.13.
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return this.groups().map((group) => ({
+      type: "group",
+      cls: "qt-settings qt-section",
+      ...group,
+    }));
   }
   display() {
-    this.renderSettings();
+    this.renderLegacy();
   }
-  private renderSettings() {
-    const { containerEl } = this,
-      p = this.plugin,
+  private renderLegacy() {
+    this.containerEl.empty();
+    this.containerEl.addClass("qt-settings");
+    for (const group of this.groups()) {
+      const section = this.containerEl.createDiv({ cls: "qt-section" });
+      new Setting(section).setName(group.heading).setHeading();
+      for (const row of group.items) {
+        const setting = new Setting(section).setName(row.name);
+        if (row.desc) setting.setDesc(row.desc);
+        row.render(setting);
+      }
+    }
+  }
+  private refreshSettings() {
+    if (requireApiVersion("1.13.0")) this.update();
+    else this.renderLegacy();
+  }
+  private groups(): Group[] {
+    const p = this.plugin,
       t = p.t;
-    containerEl.empty();
-    containerEl.addClass("qt-settings");
-    const interaction = this.section("interaction", "interactionHelp");
-    new Setting(interaction).setName(t("trigger")).addDropdown((dropdown) =>
-      dropdown
-        .addOptions({ row: t("row"), handle: t("handle") })
-        .setValue(p.settings.trigger)
-        .onChange(async (value) => {
-          p.settings.trigger = value as "row" | "handle";
-          await p.saveSettings();
-          p.refresh();
-        }),
-    );
-    new Setting(interaction).setName(t("delay")).addSlider((slider) =>
-      slider
-        .setLimits(180, 800, 10)
-        .setValue(p.settings.delay)
-        .onChange(async (value) => {
-          p.settings.delay = value;
-          await p.saveSettings();
-        }),
-    );
-    const storage = this.section("path", "pathHelp");
+    const key = Platform.isMobile ? "delay" : "mouseDelay";
+    const groups: Group[] = [
+      {
+        heading: t("general"),
+        items: [
+          {
+            name: t("language"),
+            aliases: ["language", "语言"],
+            render: (setting) => {
+              setting.addDropdown((dropdown) =>
+                dropdown
+                  .addOptions({ auto: t("auto"), zh: "中文", en: "English" })
+                  .setValue(p.settings.language)
+                  .onChange(async (value) => {
+                    p.settings.language = value as "auto" | "zh" | "en";
+                    await p.saveSettings();
+                    p.refresh();
+                    this.refreshSettings();
+                  }),
+              );
+            },
+          },
+        ],
+      },
+      {
+        heading: t("interaction"),
+        items: [
+          {
+            name: t("trigger"),
+            desc: t(Platform.isMobile ? "interactionHelpMobile" : "interactionHelp"),
+            aliases: ["drag", "handle", "row", "拖拽", "手柄", "整行"],
+            render: (setting) => {
+              setting.addDropdown((dropdown) =>
+                dropdown
+                  .addOptions({ row: t("row"), handle: t("handle") })
+                  .setValue(p.settings.trigger)
+                  .onChange(async (value) => {
+                    p.settings.trigger = value as "row" | "handle";
+                    await p.saveSettings();
+                    p.refresh();
+                  }),
+              );
+            },
+          },
+          {
+            name: t("delay"),
+            desc: t(Platform.isMobile ? "delayHelpMobile" : "delayHelp"),
+            aliases: ["delay", "long press", "延迟", "长按"],
+            render: (setting) => {
+              const valueEl = requireApiVersion("1.13.0")
+                ? null
+                : setting.controlEl.createSpan({
+                    cls: "qt-delay-value",
+                    text: `${p.settings[key]} ms`,
+                  });
+              setting.addSlider((slider) =>
+                slider
+                  .setLimits(180, 800, 10)
+                  .setValue(p.settings[key])
+                  .onChange(async (value) => {
+                    p.cancelDrags();
+                    p.settings[key] = value;
+                    valueEl?.setText(`${value} ms`);
+                    await p.saveSettings();
+                  }),
+              );
+            },
+          },
+        ],
+      },
+    ];
+    // Hiding these controls must not erase desktop-configured paths or exclusions.
+    if (!Platform.isMobile)
+      groups.push({
+        heading: t("ordering"),
+        items: [
+          {
+            name: t("path"),
+            desc: t("pathHelp"),
+            aliases: ["JSON", "sort order", "排序", "数据文件"],
+            render: (setting) => this.renderPath(setting),
+          },
+          {
+            name: t("exclusions"),
+            desc: t("exclusionsHelp"),
+            aliases: ["assets", "exclude", "排除", "附件"],
+            render: (setting) => this.renderExclusions(setting),
+          },
+        ],
+      });
+    if (p.store.error)
+      groups.push({ heading: t("error"), items: [{ name: t("readError"), render: () => {} }] });
+    return groups;
+  }
+  private renderPath(setting: Setting) {
+    const p = this.plugin,
+      t = p.t;
     let path = p.settings.jsonPath;
-    const pathField = new Setting(storage)
+    setting
       .setClass("qt-path-field")
       .addText((text) => {
         text
@@ -143,7 +213,7 @@ export class ExplorerSettingsTab extends PluginSettingTab {
             await p.saveSettings();
             p.refresh();
             new Notice(t("saved"));
-            this.renderSettings();
+            this.refreshSettings();
           } catch (error) {
             p.report(error);
           } finally {
@@ -151,19 +221,35 @@ export class ExplorerSettingsTab extends PluginSettingTab {
           }
         }),
       );
-    pathField.infoEl.remove();
-    const excluded = this.section("exclusions", "exclusionsHelp");
-    const list = excluded.createDiv({ cls: "qt-exclusion-list" });
+  }
+  private async exclusions(next: string[]) {
+    const p = this.plugin,
+      previous = p.store.rules;
+    p.cancelDrags();
+    p.store.rules = next;
+    try {
+      await p.store.update((order) => order);
+      p.settings.excluded = next;
+      await p.saveSettings();
+      p.refresh();
+      this.refreshSettings();
+    } catch (error) {
+      p.store.rules = previous;
+      p.report(error);
+    }
+  }
+  private renderExclusions(setting: Setting) {
+    const p = this.plugin,
+      t = p.t;
+    setting.settingEl.addClass("qt-exclusions-field");
+    const container = setting.controlEl;
+    const list = container.createDiv({ cls: "qt-exclusion-list" });
     if (!p.settings.excluded.length)
       list.createEl("p", { cls: "qt-empty", text: t("noExclusions") });
     for (const path of p.settings.excluded) {
       const row = list.createDiv({ cls: "qt-exclusion-row" });
       setIcon(row.createSpan({ cls: "qt-folder-icon" }), "folder");
-      row.createSpan({
-        text: path,
-        cls: "qt-folder-path",
-        attr: { title: path },
-      });
+      row.createSpan({ text: path, cls: "qt-folder-path", attr: { title: path } });
       const remove = row.createEl("button", {
         cls: "clickable-icon",
         attr: { "aria-label": `${t("remove")}: ${path}` },
@@ -176,7 +262,7 @@ export class ExplorerSettingsTab extends PluginSettingTab {
         });
       });
     }
-    const add = excluded.createDiv({ cls: "qt-add-directory" });
+    const add = container.createDiv({ cls: "qt-add-directory" });
     const input = add.createEl("input", {
       type: "text",
       placeholder: t("directoryPlaceholder"),
@@ -189,7 +275,7 @@ export class ExplorerSettingsTab extends PluginSettingTab {
     setIcon(browse, "folder-search");
     browse.addEventListener("click", () =>
       new FolderPicker(
-        this.app,
+        p.app,
         (path) => {
           input.value = path;
           input.focus();
@@ -216,7 +302,7 @@ export class ExplorerSettingsTab extends PluginSettingTab {
         void commit();
       }
     });
-    const attachment = excluded.createEl("button", {
+    const attachment = container.createEl("button", {
       cls: "qt-text-button",
       text: t("attachment"),
     });
@@ -231,19 +317,5 @@ export class ExplorerSettingsTab extends PluginSettingTab {
         attachment.disabled = false;
       });
     });
-    const general = this.section("general");
-    containerEl.prepend(general);
-    new Setting(general).setName(t("language")).addDropdown((dropdown) =>
-      dropdown
-        .addOptions({ auto: t("auto"), zh: "中文", en: "English" })
-        .setValue(p.settings.language)
-        .onChange(async (value) => {
-          p.settings.language = value as "auto" | "zh" | "en";
-          await p.saveSettings();
-          p.refresh();
-          this.renderSettings();
-        }),
-    );
-    if (p.store.error) containerEl.createEl("p", { text: t("readError"), cls: "qt-error" });
   }
 }

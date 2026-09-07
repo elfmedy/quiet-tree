@@ -3,7 +3,24 @@ import { destinationLabel } from "../src/presentation.ts";
 import { translate } from "../src/i18n.ts";
 import { createScenario } from "../lib/explorer-model.ts";
 import assert from "node:assert/strict";
-import { readSettings } from "../src/settings-data.ts";
+import { readSettings, loadSettings } from "../src/settings-data.ts";
+
+test("desktop and touch delays are independent, including legacy defaults and saved custom values", () => {
+  const defaults = loadSettings(null, "order.json", ["assets"]);
+  assert.equal(defaults.delay, 500);
+  assert.equal(defaults.mouseDelay, 200);
+  const legacy = loadSettings({ delay: 350, jsonPath: "custom.json", excluded: [] }, "order.json", [
+    "assets",
+  ]);
+  assert.equal(legacy.delay, 500);
+  assert.equal(legacy.mouseDelay, 200);
+  assert.equal(legacy.jsonPath, "custom.json");
+  assert.deepEqual(legacy.excluded, []);
+  assert.equal(loadSettings({ delay: 610 }, "order.json", []).delay, 610);
+  assert.equal(loadSettings({ delay: 350, mouseDelay: 270 }, "order.json", []).delay, 350);
+  assert.deepEqual(readSettings({ mouseDelay: 50 }), { mouseDelay: 180 });
+  assert.deepEqual(readSettings({ mouseDelay: NaN }), {});
+});
 
 test("editable settings accept known fields and reject malformed values", () => {
   assert.deepEqual(readSettings(null), {});

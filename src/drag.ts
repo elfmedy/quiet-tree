@@ -35,7 +35,6 @@ export class DragController {
   private line?: HTMLElement;
   private guide?: HTMLElement;
   private surface?: HTMLElement;
-  private progress?: HTMLElement;
   private pickerEl?: HTMLElement;
   private picker: BoundaryPicker | null = null;
   private pickerKey = "";
@@ -220,7 +219,7 @@ export class DragController {
         path !== this.plugin.settings.jsonPath;
       let handle = el.querySelector<HTMLElement>(":scope > .qt-handle");
       el.classList.toggle("qt-sortable", allowed);
-      if (!allowed) {
+      if (!allowed || this.plugin.settings.trigger !== "handle") {
         handle?.remove();
         continue;
       }
@@ -244,13 +243,18 @@ export class DragController {
       return null;
     if (this.view.searchQuery) return null; // Filtered trees have ambiguous hidden siblings.
     const row = element.closest<HTMLElement>(".tree-item-self[data-path]");
-    if (!row || !this.root.contains(row) || !row.querySelector(":scope > .qt-handle")) return null;
+    if (!row || !this.root.contains(row) || !row.classList.contains("qt-sortable")) return null;
     if (this.plugin.settings.trigger === "handle" && !element.closest(".qt-handle")) return null;
     return row;
   }
   private pointerDown(event: PointerEvent) {
+    if (event.pointerType === "touch") {
+      // Claim only a sortable drag target. Do not preventDefault: taps and
+      // pre-activation scrolling must retain their browser defaults.
+      if (this.eligible(event.target)) event.stopPropagation();
+      return;
+    }
     if (
-      event.pointerType === "touch" ||
       event.button !== 0 ||
       !event.isPrimary ||
       event.ctrlKey ||
@@ -269,7 +273,10 @@ export class DragController {
     }
     const row = this.eligible(event.target),
       touch = event.touches[0];
-    if (row) this.begin(row, touch.clientX, touch.clientY, "touch", touch.identifier);
+    if (row) {
+      event.stopPropagation();
+      this.begin(row, touch.clientX, touch.clientY, "touch", touch.identifier);
+    }
   }
   private begin(el: HTMLElement, x: number, y: number, input: "mouse" | "touch", pointer: number) {
     this.cancel();
@@ -285,16 +292,7 @@ export class DragController {
       active: false,
       pointer,
     };
-    const delay =
-      input === "touch"
-        ? this.plugin.settings.delay
-        : Math.max(180, this.plugin.settings.delay * 0.52);
-    el.style.setProperty("--qt-delay", `${delay}ms`);
-    this.progress = this.dom.createSpan();
-    this.progress.className = "qt-hold-progress";
-    this.progress.setAttribute("aria-hidden", "true");
-    el.append(this.progress);
-    el.classList.add("qt-pressing");
+    const delay = input === "touch" ? this.plugin.settings.delay : this.plugin.settings.mouseDelay;
     this.timer = this.win.setTimeout(() => {
       if (this.press && (input === "touch" || Math.hypot(this.press.x - x, this.press.y - y) >= 4))
         this.activate();
@@ -309,9 +307,6 @@ export class DragController {
       return;
     }
     p.active = true;
-    this.progress?.remove();
-    this.progress = undefined;
-    p.el.classList.remove("qt-pressing");
     p.el.classList.add("qt-source");
     this.root.classList.add("qt-dragging");
     // A temporary hit surface prevents native hover/title tooltips without
@@ -386,7 +381,7 @@ export class DragController {
       if (
         p.input === "mouse" &&
         distance >= 4 &&
-        Date.now() - p.time >= Math.max(180, this.plugin.settings.delay * 0.52)
+        Date.now() - p.time >= this.plugin.settings.mouseDelay
       )
         this.activate();
     }
@@ -722,10 +717,7 @@ export class DragController {
     if (this.press?.active) this.suppressClickUntil = Date.now() + 500;
     this.win.clearTimeout(this.timer);
     this.win.cancelAnimationFrame(this.frame);
-    this.press?.el.classList.remove("qt-pressing", "qt-source");
-    this.press?.el.style.removeProperty("--qt-delay");
-    this.progress?.remove();
-    this.progress = undefined;
+    this.press?.el.classList.remove("qt-source");
     this.activeFolder?.classList.remove("qt-inside");
     this.activeFolder = undefined;
     this.root.classList.remove("qt-dragging");

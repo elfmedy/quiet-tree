@@ -19,7 +19,7 @@ For manual installation, download those three release assets into your vault's `
 
 ## 使用
 
-- 默认整行长按；设置中可切换为仅右侧手柄触发。鼠标至少等待 180 毫秒并移动 4 像素后提起；触屏长按默认 350 毫秒，提前滑动继续普通滚动。
+- 默认整行长按且不显示手柄；设置中切换为手柄模式后才显示右侧手柄。鼠标默认等待 200 毫秒并移动 4 像素后提起；触屏长按默认 500 毫秒，提前滑动继续普通滚动。普通点击不显示按压进度横线。
 - 提起时显示浮动卡片，原位置保持稳定。横线表示插入点，竖线表示目标目录范围，空心圆标明交点。
 - 在目录末尾停留，会出现层级选项。例如 **A / C 之后** 与 **根目录 / A 与 D 之间**，移向对应选项后松手。
 - 拖到目录中部可以移入；停留可展开目录。列表边缘支持自动滚动。
@@ -29,9 +29,10 @@ For manual installation, download those three release assets into your vault's `
 ## 设置和数据
 
 - **通用**：跟随 Obsidian 语言，或指定中文 / English。
-- **拖拽交互**：整行 / 手柄触发，以及触屏长按延迟。
-- **排序数据文件**：默认 `.obsidian/plugins/quiet-tree/sort-order.json`，可以设置知识库内的其他 `.json` 路径。
-- **排除的目录**：输入目录路径或通过选择器添加。该目录及其子目录的内部条目不保存排序，目录自身仍可在上一级调整位置。首次启用会读取知识库配置的独立附件目录。
+- **拖拽交互**：整行 / 手柄触发，以及当前设备的延迟。桌面调整鼠标延迟，手机调整触屏延迟，两者独立保存。旧版默认 350 毫秒升级为 500 毫秒；自定义延迟保留。
+- **排序数据文件（仅桌面显示）**：默认 `.obsidian/plugins/quiet-tree/sort-order.json`，可以设置知识库内的其他 `.json` 路径。
+- **排除的目录（仅桌面显示）**：输入目录路径或通过选择器添加。该目录及其子目录的内部条目不保存排序，目录自身仍可在上一级调整位置。首次启用会读取知识库配置的独立附件目录。手机继续使用已保存的路径和排除规则，不会因隐藏设置而清空它们。
+- Obsidian 1.13 及以上可通过全局设置搜索找到每个设置项；旧版本保留兼容设置页面。
 
 排序数据只保存自定义过的目录。键为知识库相对目录路径，值为直接子项名称；`/` 表示根目录。未记录的条目沿用原生顺序。
 
@@ -46,10 +47,10 @@ For manual installation, download those three release assets into your vault's `
 
 ## Compatibility
 
-- Tested on **Obsidian 1.13.7 / Windows**. The manifest declares Obsidian 1.8.7 as the minimum; older versions have not been verified.
+- Tested on **Obsidian 1.13.7 / Windows**, including its mobile-layout emulation and deferred sidebars. The legacy settings renderer was also checked on 1.12.7. The minimum remains 1.8.7; that exact minimum has not been verified.
 - Uses native file explorer rows, virtualization, theme colors and selection state. Drag visuals are scoped to the active explorer, and reduced-motion preferences are respected.
 - Sorting integrates with an undocumented file explorer API. Future Obsidian updates may require changes; running multiple plugins that control the same sort order can conflict.
-- Touch gestures have been simulated in the desktop app. Physical Android and iOS devices and arbitrary third-party themes have not yet been tested.
+- Touch gestures have been simulated in the desktop app. Claimed drag targets suppress native callouts and native drag previews, while early swipes remain scrollable. The plugin does not request vibration. Physical Android/iOS haptics and arbitrary third-party themes still need device testing.
 - Multi-item dragging, cross-window dragging and sort undo history are not currently supported.
 - Plugin runtime does not require Node.js or make network requests. BRAT handles downloading and updating the plugin.
 
@@ -65,7 +66,7 @@ npm test
 npm run build
 ```
 
-The three installable assets are generated in `dist/`. Plugin code lives in `src/`; shared tree and drag geometry code lives in `lib/`. Tests cover persistence, exclusions, moves, drop geometry and destination descriptions.
+The three installable assets are generated in `dist/`. Plugin code lives in `src/`; shared tree and drag geometry code lives in `lib/`. Tests cover persistence, exclusions, moves, drop geometry, delay migration and destination descriptions. Native regression scripts in `tests/native-*.js` are restricted to a dedicated `Quiet Tree QA` vault. See [VALIDATION.md](VALIDATION.md) for their setup and limits.
 
 For a new release, update `manifest.json`, `versions.json`, `package.json` and `package-lock.json`. Commit the changes, then push a tag equal to the version, for example `0.2.2` (without `v`). GitHub Actions checks, builds and publishes the three BRAT assets automatically.
 

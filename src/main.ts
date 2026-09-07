@@ -1,4 +1,11 @@
-import { getLanguage, Notice, Plugin, TFolder, type TAbstractFile } from "obsidian";
+import {
+  getLanguage,
+  Notice,
+  Plugin,
+  TFolder,
+  type TAbstractFile,
+  type WorkspaceLeaf,
+} from "obsidian";
 import type { DropTarget } from "../lib/explorer-model";
 import { attachSort, type NativeExplorer } from "./native";
 import { DragController } from "./drag";
@@ -16,7 +23,7 @@ import {
 } from "./order";
 import { translate, type TextKey } from "./i18n";
 import { ExplorerSettingsTab } from "./settings";
-import { readSettings, type Settings } from "./settings-data";
+import { loadSettings, type Settings } from "./settings-data";
 
 export default class QuietTreePlugin extends Plugin {
   declare settings: Settings;
@@ -26,6 +33,8 @@ export default class QuietTreePlugin extends Plugin {
   private busy = false;
   private alive = false;
   private pollBusy = false;
+  private loadingLeaves = new WeakSet<WorkspaceLeaf>();
+  private warnedViews = new WeakSet<object>();
   t = (key: TextKey): string =>
     translate(this.settings.language === "auto" ? getLanguage() : this.settings.language, key);
   defaultPath(): string {
@@ -39,15 +48,7 @@ export default class QuietTreePlugin extends Plugin {
   }
   async onload() {
     const data: unknown = await this.loadData();
-    this.settings = {
-      language: "auto",
-      jsonPath: this.defaultPath(),
-      trigger: "row",
-      delay: 350,
-      excluded: this.attachmentRules(),
-      ...readSettings(data),
-    };
-    this.settings.delay = Math.max(180, Math.min(800, Number(this.settings.delay) || 350));
+    this.settings = loadSettings(data, this.defaultPath(), this.attachmentRules());
     this.store = new OrderStore(
       this.app.vault.adapter,
       orderPath(this.settings.jsonPath, this.app.vault.configDir, this.manifest.id),
@@ -58,7 +59,7 @@ export default class QuietTreePlugin extends Plugin {
     } catch (error) {
       this.report(error, "readError");
     }
-    if (!data) await this.saveSettings();
+    if (JSON.stringify(data) !== JSON.stringify(this.settings)) await this.saveSettings();
     this.alive = true;
     this.addSettingTab(new ExplorerSettingsTab(this.app, this));
     this.addCommand({
@@ -163,9 +164,28 @@ export default class QuietTreePlugin extends Plugin {
     }
   }
   private syncViews() {
+    if (!this.alive || !this.app.workspace.layoutReady) return;
+    const leaves = this.app.workspace.getLeavesOfType("file-explorer");
+    for (const leaf of leaves) {
+      // Mobile sidebars are commonly deferred at startup. A placeholder view
+      // does not expose explorer methods and must never be reported as incompatible.
+      if (leaf.isDeferred && !this.loadingLeaves.has(leaf)) {
+        this.loadingLeaves.add(leaf);
+        void leaf
+          .loadIfDeferred()
+          .then(() => {
+            this.loadingLeaves.delete(leaf);
+            if (!leaf.isDeferred) this.syncViews();
+          })
+          .catch((error: unknown) => {
+            this.loadingLeaves.delete(leaf);
+            if (this.alive) console.error("[Quiet Tree] Could not load file explorer", error);
+          });
+      }
+    }
     const current = new Set(
-      this.app.workspace
-        .getLeavesOfType("file-explorer")
+      leaves
+        .filter((leaf) => !leaf.isDeferred)
         .map((leaf) => leaf.view as unknown as NativeExplorer),
     );
     for (const [view, binding] of this.views)
@@ -178,10 +198,14 @@ export default class QuietTreePlugin extends Plugin {
       if (this.views.has(view)) continue;
       if (
         typeof view.getSortedFolderItems !== "function" ||
+        typeof view.requestSort !== "function" ||
         !view.navFileContainerEl ||
         !view.fileItems
       ) {
-        new Notice(this.t("unavailable"));
+        if (!this.warnedViews.has(view)) {
+          this.warnedViews.add(view);
+          new Notice(this.t("unavailable"));
+        }
         continue;
       }
       const restore = attachSort(view, this.store);
@@ -193,6 +217,7 @@ export default class QuietTreePlugin extends Plugin {
     this.pollBusy = true;
     const hadError = !!this.store.error;
     try {
+      this.syncViews();
       if (await this.store.load()) this.refresh();
       if (notify) new Notice(this.t("ready"));
     } catch (error) {

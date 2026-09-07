@@ -7,9 +7,12 @@ export const en = {
   positionFirst: "First position",
   interaction: "Dragging",
   general: "General",
+  ordering: "Ordering",
   details: "Show details",
   interactionHelp:
-    "Hold to lift; moving your finger earlier scrolls normally.\nThe delay is in milliseconds.\nMouse activation requires at least 180 ms and 4 px of movement.",
+    "Hold for the configured delay, then move at least 4 pixels to lift. A normal click still opens the item.",
+  interactionHelpMobile:
+    "Hold still for the configured delay to lift. Swipe before the delay to scroll normally; release after dragging to drop.",
   noExclusions: "No excluded directories",
   addDirectory: "Add directory",
   chooseDirectory: "Choose a vault directory",
@@ -30,8 +33,9 @@ export const en = {
   row: "Long press anywhere on the row",
   handle: "Right-side handle",
   delay: "Long-press delay",
-  delayHelp:
-    "Touch delay in milliseconds. Mouse activation uses at least 180 ms and 4 px of movement.",
+  delayHelp: "Mouse delay in milliseconds (default: 200). Touch uses a separate delay.",
+  delayHelpMobile:
+    "Touch delay in milliseconds (default: 500). Mouse delay is configured separately on desktop.",
   exclusions: "Excluded directories",
   exclusionsHelp:
     "Enter a vault-relative directory path or choose a folder.\nContents and subdirectories are excluded; the folder itself can still be positioned in its parent.\nRemove a rule to enable custom sorting again.",
@@ -82,9 +86,11 @@ const zh: Record<TextKey, string> = {
   positionFirst: "第一个位置",
   interaction: "拖拽交互",
   general: "通用",
+  ordering: "排序",
   details: "查看说明",
-  interactionHelp:
-    "长按后提起；触屏提前滑动则继续滚动。\n延迟单位为毫秒。\n鼠标至少等待 180 毫秒并移动 4 像素后提起。",
+  interactionHelp: "按住达到设置的延迟后，再移动至少 4 像素即可提起。普通点击仍然打开条目。",
+  interactionHelpMobile:
+    "保持按住，达到设置的延迟后提起；提前滑动则正常滚动。提起后移动位置，松手放下。",
   noExclusions: "尚未排除任何目录",
   addDirectory: "添加目录",
   chooseDirectory: "从知识库选择目录",
@@ -104,7 +110,8 @@ const zh: Record<TextKey, string> = {
   row: "整行长按",
   handle: "右侧手柄",
   delay: "长按延迟",
-  delayHelp: "触屏长按时间，单位毫秒。鼠标至少等待 180 毫秒，并移动 4 像素后提起。",
+  delayHelp: "鼠标按住的延迟，单位毫秒，默认为 200。与触屏延迟分别保存。",
+  delayHelpMobile: "触屏长按延迟，单位毫秒，默认为 500。鼠标延迟在桌面端单独设置。",
   exclusions: "排除的目录",
   exclusionsHelp:
     "输入相对于知识库的目录路径，或从列表中选择。\n该目录及子目录的内部条目不排序、不记录；目录本身仍可在上一级调整位置。\n移除规则后恢复排序功能。",
