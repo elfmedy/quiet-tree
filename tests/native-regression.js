@@ -108,22 +108,20 @@
     "Returning to row mode removes handles",
   );
   check(JSON.stringify(p.store.order) === before, "All canceled gestures preserve ordering");
-  await p.saveSettings();
+  await p.saveSettings({ trigger: "row" });
   app.setting.open();
   app.setting.openTabById("quiet-tree");
   const tab = app.setting.activeTab;
   const definitions = tab.getSettingDefinitions().flatMap((g) => g.items ?? []);
   const mobile = qtTestApi.Platform.isMobile;
-  check(definitions.length === (mobile ? 3 : 5), "Platform settings expose only intended controls");
+  check(definitions.length === (mobile ? 3 : 4), "Platform settings expose only intended controls");
   check(
     definitions.every((d) => Boolean(d.name) && Boolean(d.aliases?.length)),
     "Every control has searchable definitions",
   );
   check(
-    mobile
-      ? !tab.containerEl.querySelector(".qt-path-field")
-      : Boolean(tab.containerEl.querySelector(".qt-path-field")),
-    "Path picker visibility follows platform",
+    !tab.containerEl.querySelector(".qt-path-field"),
+    "No storage path picker on either platform",
   );
   check(
     mobile

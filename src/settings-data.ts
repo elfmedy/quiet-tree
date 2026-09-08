@@ -2,7 +2,6 @@ import { relativePath } from "./order";
 
 export interface Settings {
   language: "auto" | "zh" | "en";
-  jsonPath: string;
   trigger: "row" | "handle";
   delay: number;
   mouseDelay: number;
@@ -17,7 +16,6 @@ export function readSettings(data: unknown): Partial<Settings> {
   if (raw.language === "auto" || raw.language === "zh" || raw.language === "en")
     result.language = raw.language;
   if (raw.trigger === "row" || raw.trigger === "handle") result.trigger = raw.trigger;
-  if (typeof raw.jsonPath === "string" && raw.jsonPath.trim()) result.jsonPath = raw.jsonPath;
   if (typeof raw.delay === "number" && Number.isFinite(raw.delay))
     result.delay = Math.max(180, Math.min(800, raw.delay));
   if (typeof raw.mouseDelay === "number" && Number.isFinite(raw.mouseDelay))
@@ -35,13 +33,10 @@ export function readSettings(data: unknown): Partial<Settings> {
   return result;
 }
 
-export function loadSettings(data: unknown, jsonPath: string, excluded: string[]): Settings {
+export function loadSettings(data: unknown, excluded: string[]): Settings {
   const stored = readSettings(data);
-  // 350 ms was the pre-0.2.3 touch default. Keep deliberately customized delays.
-  if (stored.mouseDelay === undefined && stored.delay === 350) stored.delay = 500;
   return {
     language: "auto",
-    jsonPath,
     trigger: "row",
     delay: 500,
     mouseDelay: 200,

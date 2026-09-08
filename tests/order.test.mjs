@@ -4,20 +4,14 @@ import { translate } from "../src/i18n.ts";
 import { createScenario } from "../lib/explorer-model.ts";
 import assert from "node:assert/strict";
 import { readSettings, loadSettings } from "../src/settings-data.ts";
+import { DataStore, readOrderState } from "../src/data.ts";
 
-test("desktop and touch delays are independent, including legacy defaults and saved custom values", () => {
-  const defaults = loadSettings(null, "order.json", ["assets"]);
+test("desktop and touch delays are independent and customized values are preserved", () => {
+  const defaults = loadSettings(null, ["assets"]);
   assert.equal(defaults.delay, 500);
   assert.equal(defaults.mouseDelay, 200);
-  const legacy = loadSettings({ delay: 350, jsonPath: "custom.json", excluded: [] }, "order.json", [
-    "assets",
-  ]);
-  assert.equal(legacy.delay, 500);
-  assert.equal(legacy.mouseDelay, 200);
-  assert.equal(legacy.jsonPath, "custom.json");
-  assert.deepEqual(legacy.excluded, []);
-  assert.equal(loadSettings({ delay: 610 }, "order.json", []).delay, 610);
-  assert.equal(loadSettings({ delay: 350, mouseDelay: 270 }, "order.json", []).delay, 350);
+  assert.equal(loadSettings({ delay: 350 }, []).delay, 350);
+  assert.equal(loadSettings({ delay: 610, mouseDelay: 270 }, []).mouseDelay, 270);
   assert.deepEqual(readSettings({ mouseDelay: 50 }), { mouseDelay: 180 });
   assert.deepEqual(readSettings({ mouseDelay: NaN }), {});
 });
@@ -69,8 +63,6 @@ import {
   renameExclusions,
   renameOrder,
   deleteOrder,
-  orderPath,
-  OrderStore,
 } from "../src/order.ts";
 
 test("human-editable JSON roundtrip, root, Unicode and omitted native items", () => {
@@ -130,24 +122,6 @@ test("excluded folders follow moves without matching unrelated prefixes", () => 
     "AA/Images",
   ]);
 });
-test("sort path is portable and cannot overwrite application settings", () => {
-  assert.equal(
-    orderPath(".obsidian/plugins/quiet-tree/sort-order.json", ".obsidian", "quiet-tree"),
-    ".obsidian/plugins/quiet-tree/sort-order.json",
-  );
-  assert.equal(orderPath("Meta/order.json", ".obsidian", "quiet-tree"), "Meta/order.json");
-  for (const path of [
-    "../order.json",
-    "C:\\order.json",
-    "/order.json",
-    "a/../order.json",
-    "order.md",
-    ".obsidian/app.json",
-    ".obsidian/plugins/quiet-tree/data.json",
-    ".obsidian/plugins/other/order.json",
-  ])
-    assert.throws(() => orderPath(path, ".obsidian", "quiet-tree"));
-});
 test("renames preserve positions and rewrite recorded descendants only", () => {
   const original = parseOrder(
     '{"/": ["A", "D"], "A": ["B.md","C.md"], "A/Sub": ["中文.md"], "AA": ["Keep.md"]}',
@@ -168,100 +142,152 @@ test("delete prunes recorded descendants and exact parent entry", () => {
   assert.deepEqual(Object.keys(result), ["/", "AA"]);
   assert.deepEqual(result["/"], ["AA"]);
 });
-function memory() {
-  const files = new Map();
-  const folders = new Set();
+
+function memory(data = null) {
   return {
-    files,
-    folders,
+    data,
     fail: false,
-    async exists(path) {
-      return files.has(path) || folders.has(path);
+    writes: 0,
+    async load() {
+      return structuredClone(this.data);
     },
-    async read(path) {
-      if (!files.has(path)) throw new Error("missing");
-      return files.get(path);
-    },
-    async write(path, text) {
-      if (this.fail) throw new Error("disk full");
-      files.set(path, text);
-    },
-    async mkdir(path) {
-      folders.add(path);
-    },
-    async process(path, fn) {
-      const text = fn(await this.read(path));
-      await this.write(path, text);
-      return text;
+    async save(next) {
+      if (this.fail) throw Error("disk full");
+      this.data = structuredClone(next);
+      this.writes++;
     },
   };
 }
-test("store stays sparse and merges latest manual edits on every update", async () => {
-  const adapter = memory(),
-    store = new OrderStore(adapter, "Meta/order.json", ["Images"]);
-  await store.load();
-  assert.equal(adapter.files.get(store.path), "{}\n");
-  adapter.files.set(store.path, '{"Manual": ["中文.md"], "Images": ["huge.png"]}');
-  await store.update((order) => {
-    order.A = ["C.md", "B.md"];
-    return order;
-  });
-  assert.deepEqual(store.order.Manual, ["中文.md"]);
-  assert.equal(store.order.Images, undefined);
-  assert.equal(Object.keys(store.order).length, 2);
+const snapshot = (order) => [1, Object.entries(order)];
+test("snapshot is a single versioned array and rejects partial, duplicate or malformed orders", () => {
+  assert.deepEqual(readOrderState(snapshot({ "/": ["中文.md"], A: ["B.md"] })).A, ["B.md"]);
+  for (const state of [
+    null,
+    {},
+    [2, []],
+    [1],
+    [1, {}, []],
+    [
+      1,
+      [
+        ["A", []],
+        ["A", []],
+      ],
+    ],
+    [1, [["A", ["B", "B"]]]],
+    [1, [["../A", []]]],
+    [1, [["A", ["a/b"]]]],
+  ])
+    assert.throws(() => readOrderState(state));
+  assert.deepEqual(readOrderState([1, [["__proto__", ["constructor"]]]]).__proto__, [
+    "constructor",
+  ]);
 });
-test("invalid external JSON and failed writes retain last good state and never overwrite bad input", async () => {
-  const adapter = memory(),
-    store = new OrderStore(adapter, "order.json", []);
+test("new device loads without writing defaults; old standalone format is not consumed", async () => {
+  const io = memory(),
+    store = new DataStore(io, ["assets"]);
   await store.load();
-  await store.update((order) => {
-    order.A = ["B.md"];
-    return order;
-  });
-  adapter.fail = true;
-  await assert.rejects(
-    store.update((order) => {
-      order.A = ["C.md"];
-      return order;
-    }),
-  );
-  assert.deepEqual(store.order.A, ["B.md"]);
-  adapter.fail = false;
-  adapter.files.set("order.json", '{"A": [');
+  assert.equal(io.writes, 0);
+  assert.equal(io.data, null);
+  io.data = { jsonPath: "old.json", delay: 350 };
   await assert.rejects(store.load());
-  await assert.rejects(store.update((order) => order));
-  assert.equal(adapter.files.get("order.json"), '{"A": [');
-  assert.deepEqual(store.order.A, ["B.md"]);
+  await assert.rejects(store.saveSettings({ language: "en" }));
+  assert.equal(io.writes, 0);
 });
-test("switching paths loads existing order, copies new paths and rejects malformed target", async () => {
-  const adapter = memory(),
-    store = new OrderStore(adapter, "original.json", []);
+test("settings and order writes share one queue and preserve latest synced fields", async () => {
+  const io = memory(),
+    store = new DataStore(io, ["assets"]);
   await store.load();
-  await store.update((order) => {
-    order.A = ["B.md"];
-    return order;
-  });
-  await store.switchPath("Meta/copy.json");
-  assert.deepEqual(store.order.A, ["B.md"]);
-  assert.ok(adapter.files.has("original.json"));
-  adapter.files.set("other.json", '{"Z": ["Q.md"]}');
-  await store.switchPath("other.json");
-  assert.deepEqual(store.order.Z, ["Q.md"]);
-  adapter.files.set("bad.json", "bad");
-  await assert.rejects(store.switchPath("bad.json"));
-  assert.equal(store.path, "other.json");
-});
-test("serialized updates do not lose independent folders", async () => {
-  const adapter = memory(),
-    store = new OrderStore(adapter, "order.json", []);
-  await store.load();
-  await Promise.all(
-    Array.from({ length: 25 }, (_, i) =>
+  await Promise.all([
+    store.saveSettings({ language: "en", mouseDelay: 280 }),
+    ...Array.from({ length: 25 }, (_, i) =>
       store.update((order) => {
         order["Folder" + i] = ["Note.md"];
         return order;
       }),
     ),
-  );
+    store.saveSettings({ delay: 630 }),
+  ]);
   assert.equal(Object.keys(store.order).length, 25);
+  assert.equal(io.data.language, "en");
+  assert.equal(io.data.mouseDelay, 280);
+  assert.equal(io.data.delay, 630);
+  assert.ok(Array.isArray(io.data.orderState));
+  io.data.language = "zh";
+  io.data.orderState = snapshot({ Remote: ["新.md"], assets: ["image.png"] });
+  await store.saveSettings({ trigger: "handle" });
+  assert.equal(store.settings.language, "zh");
+  assert.deepEqual(store.order.Remote, ["新.md"]);
+  assert.equal(store.order.assets, undefined);
+  await store.update((order) => {
+    order.Local = ["本地.md"];
+    return order;
+  });
+  assert.equal(io.data.trigger, "handle");
+  assert.deepEqual(readOrderState(io.data.orderState).Remote, ["新.md"]);
+});
+test("sync replaces entire snapshot without writeback and tolerates files arriving later", async () => {
+  const io = memory({ language: "en", orderState: snapshot({ Old: ["old.md"] }) });
+  const store = new DataStore(io, []);
+  await store.load();
+  io.data = { language: "zh", orderState: snapshot({ "/": ["Future.md", "B.md", "A.md"] }) };
+  assert.equal(await store.load(), true);
+  assert.equal(store.order.Old, undefined);
+  assert.equal(store.settings.language, "zh");
+  assert.deepEqual(
+    sortItems(["A.md", "B.md"], store.order["/"], (x) => x),
+    ["B.md", "A.md"],
+  );
+  assert.deepEqual(
+    sortItems(["A.md", "Future.md", "B.md"], store.order["/"], (x) => x),
+    ["Future.md", "B.md", "A.md"],
+  );
+  assert.equal(await store.load(), false);
+  assert.equal(io.writes, 0);
+});
+test("invalid synced data and save failures preserve both last-good settings and ordering", async () => {
+  const io = memory({ trigger: "row", orderState: snapshot({ A: ["B.md"] }) });
+  const store = new DataStore(io, []);
+  await store.load();
+  io.fail = true;
+  await assert.rejects(
+    store.update((order, settings) => {
+      settings.trigger = "handle";
+      order.A = ["C.md"];
+      return order;
+    }),
+  );
+  assert.equal(store.settings.trigger, "row");
+  assert.deepEqual(store.order.A, ["B.md"]);
+  io.fail = false;
+  io.data.orderState = [1, [["A", ["B.md", "B.md"]]]];
+  await assert.rejects(store.load());
+  await assert.rejects(store.saveSettings({ delay: 700 }));
+  assert.equal(io.writes, 0);
+  assert.deepEqual(store.order.A, ["B.md"]);
+  io.data.orderState = snapshot({ C: ["Recovered.md"] });
+  await store.load();
+  assert.equal(store.error, null);
+  assert.deepEqual(store.order.C, ["Recovered.md"]);
+});
+test("exclusions and renames commit together and repeated filesystem events do not resave", async () => {
+  const io = memory({
+    excluded: ["A/assets"],
+    orderState: snapshot({ "/": ["A"], A: ["assets", "B.md"], "A/assets": ["image.png"] }),
+  });
+  const store = new DataStore(io, []);
+  await store.load();
+  await store.update((order, settings) => {
+    settings.excluded = renameExclusions(settings.excluded, "A", "D/A");
+    return renameOrder(order, "A", "D/A");
+  });
+  assert.deepEqual(io.data.excluded, ["D/A/assets"]);
+  assert.deepEqual(readOrderState(io.data.orderState)["D/A"], ["assets", "B.md"]);
+  assert.equal(readOrderState(io.data.orderState)["D/A/assets"], undefined);
+  const writes = io.writes;
+  await store.update((order) => renameOrder(order, "A", "D/A"));
+  await store.update((order) => deleteOrder(order, "A"));
+  assert.equal(io.writes, writes);
+  await store.saveSettings({ excluded: ["D"] });
+  assert.deepEqual(io.data.orderState, [1, [["/", []]]]);
 });

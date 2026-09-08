@@ -15,31 +15,28 @@ import {
   childPath,
   deleteOrder,
   excluded,
-  OrderStore,
-  orderPath,
   renameExclusions,
   renameOrder,
   sortItems,
 } from "./order";
 import { translate, type TextKey } from "./i18n";
 import { ExplorerSettingsTab } from "./settings";
-import { loadSettings, type Settings } from "./settings-data";
+import type { Settings } from "./settings-data";
+import { DataStore } from "./data";
 
 export default class QuietTreePlugin extends Plugin {
+  store!: DataStore;
   declare settings: Settings;
-  store!: OrderStore;
+  private settingsTab!: ExplorerSettingsTab;
   private views = new Map<NativeExplorer, { drag: DragController; restore: () => void }>();
   private ownRenames = new Map<string, string>();
   private busy = false;
   private alive = false;
-  private pollBusy = false;
   private loadingLeaves = new WeakSet<WorkspaceLeaf>();
   private warnedViews = new WeakSet<object>();
   t = (key: TextKey): string =>
     translate(this.settings.language === "auto" ? getLanguage() : this.settings.language, key);
-  defaultPath(): string {
-    return `${this.app.vault.configDir}/plugins/${this.manifest.id}/sort-order.json`;
-  }
+
   attachmentRules(): string[] {
     const vault = this.app.vault as typeof this.app.vault & {
       getConfig(key: string): unknown;
@@ -47,21 +44,31 @@ export default class QuietTreePlugin extends Plugin {
     return attachmentExclusion(vault.getConfig("attachmentFolderPath") as string | undefined);
   }
   async onload() {
-    const data: unknown = await this.loadData();
-    this.settings = loadSettings(data, this.defaultPath(), this.attachmentRules());
-    this.store = new OrderStore(
-      this.app.vault.adapter,
-      orderPath(this.settings.jsonPath, this.app.vault.configDir, this.manifest.id),
-      this.settings.excluded,
+    this.store = new DataStore(
+      {
+        load: async () => {
+          const data: unknown = await this.loadData();
+          // Obsidian can return null for unreadable JSON. Never treat that as a new install.
+          if (
+            data == null &&
+            (await this.app.vault.adapter.exists(this.manifest.dir + "/data.json"))
+          )
+            throw new Error("invalidJson");
+          return data;
+        },
+        save: (data) => this.saveData(data),
+      },
+      this.attachmentRules(),
     );
+    this.settings = this.store.settings;
     try {
       await this.store.load();
     } catch (error) {
       this.report(error, "readError");
     }
-    if (JSON.stringify(data) !== JSON.stringify(this.settings)) await this.saveSettings();
     this.alive = true;
-    this.addSettingTab(new ExplorerSettingsTab(this.app, this));
+    this.settingsTab = new ExplorerSettingsTab(this.app, this);
+    this.addSettingTab(this.settingsTab);
     this.addCommand({
       id: "reload-order",
       name: this.t("reload"),
@@ -105,7 +112,7 @@ export default class QuietTreePlugin extends Plugin {
           );
       }),
     );
-    this.registerInterval(window.setInterval(() => void this.reload(), 2000));
+    this.registerInterval(window.setInterval(() => this.syncViews(), 2000));
   }
   onunload() {
     this.alive = false;
@@ -120,37 +127,28 @@ export default class QuietTreePlugin extends Plugin {
     const key = error instanceof Error ? error.message : "";
     const known: TextKey[] = [
       "invalidPath",
-      "reservedPath",
       "invalidJson",
       "collision",
       "locked",
       "changed",
       "rollbackFailed",
-      "containsOrder",
     ];
     new Notice(this.t(known.includes(key as TextKey) ? (key as TextKey) : fallback), 7000);
   }
-  async saveSettings() {
-    await this.saveData(this.settings);
+  async saveSettings(patch: Partial<Settings>) {
+    await this.store.saveSettings(patch);
+    this.refresh();
   }
   private async followRename(oldPath: string, newPath: string) {
-    const json = this.settings.jsonPath;
-    if (json === oldPath || json.startsWith(oldPath + "/")) {
-      const next = orderPath(
-        newPath + json.slice(oldPath.length),
-        this.app.vault.configDir,
-        this.manifest.id,
-      );
-      await this.store.switchPath(next);
-      this.settings.jsonPath = next;
-    }
-    this.settings.excluded = renameExclusions(this.settings.excluded, oldPath, newPath);
-    this.store.rules = this.settings.excluded;
-    await Promise.all([
-      this.store.update((order) => renameOrder(order, oldPath, newPath)),
-      this.saveSettings(),
-    ]);
+    await this.store.update((order, settings) => {
+      settings.excluded = renameExclusions(settings.excluded, oldPath, newPath);
+      return renameOrder(order, oldPath, newPath);
+    });
     this.refresh();
+  }
+  async onExternalSettingsChange() {
+    this.cancelDrags();
+    await this.reload();
   }
   cancelDrags() {
     for (const { drag } of this.views.values()) drag.cancel();
@@ -213,17 +211,19 @@ export default class QuietTreePlugin extends Plugin {
     }
   }
   async reload(notify = false) {
-    if (this.pollBusy || this.busy || !this.alive) return;
-    this.pollBusy = true;
+    if (!this.alive) return;
     const hadError = !!this.store.error;
     try {
       this.syncViews();
-      if (await this.store.load()) this.refresh();
+      const changed = await this.store.load();
+      if (changed || hadError) {
+        this.refresh();
+        this.settingsTab.refreshSettings();
+      }
       if (notify) new Notice(this.t("ready"));
     } catch (error) {
       if (notify || !hadError) this.report(error, "readError");
-    } finally {
-      this.pollBusy = false;
+      this.settingsTab.refreshSettings();
     }
   }
   async resetFolder(path: string) {
@@ -244,7 +244,6 @@ export default class QuietTreePlugin extends Plugin {
     this.busy = true;
     let movedFile: TAbstractFile | null = null;
     let originalPath = "";
-    const originalRules = this.settings.excluded;
     try {
       await this.store.load(); // Validate the file before changing any vault path.
       const file = this.app.vault.getAbstractFileByPath(path);
@@ -267,8 +266,6 @@ export default class QuietTreePlugin extends Plugin {
         .filter((name) => source !== destination || name !== file.name);
       const nextPath = childPath(destination, file.name);
       if (source !== destination) {
-        if (this.settings.jsonPath === path || this.settings.jsonPath.startsWith(path + "/"))
-          throw new Error("containsOrder");
         if (
           this.app.vault.getAbstractFileByPath(nextPath) ||
           (await this.app.vault.adapter.exists(nextPath))
@@ -282,11 +279,12 @@ export default class QuietTreePlugin extends Plugin {
         } finally {
           this.ownRenames.delete(path);
         }
-        this.settings.excluded = renameExclusions(originalRules, path, nextPath);
-        this.store.rules = this.settings.excluded;
       }
-      await this.store.update((order) => {
-        if (source !== destination) order = renameOrder(order, path, nextPath);
+      await this.store.update((order, settings) => {
+        if (source !== destination) {
+          order = renameOrder(order, path, nextPath);
+          settings.excluded = renameExclusions(settings.excluded, path, nextPath);
+        }
         const ordered = sortItems(names, order[destination], (name) => name);
         const before = target.beforeId ? baseName(target.beforeId) : null;
         const index = before === null ? ordered.length : ordered.indexOf(before);
@@ -295,13 +293,10 @@ export default class QuietTreePlugin extends Plugin {
         order[destination] = ordered;
         return order;
       });
-      if (movedFile) await this.saveSettings().catch((error) => this.report(error));
       this.refresh();
       new Notice(this.t("moved"), 1500);
     } catch (error) {
       let failure = error;
-      this.settings.excluded = originalRules;
-      this.store.rules = originalRules;
       if (movedFile) {
         const from = movedFile.path;
         this.ownRenames.set(from, originalPath);

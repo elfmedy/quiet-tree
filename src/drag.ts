@@ -215,8 +215,7 @@ export class DragController {
       const allowed =
         !this.view.searchQuery &&
         path !== "/" &&
-        !excluded(parentPath(path), this.plugin.settings.excluded) &&
-        path !== this.plugin.settings.jsonPath;
+        !excluded(parentPath(path), this.plugin.settings.excluded);
       let handle = el.querySelector<HTMLElement>(":scope > .qt-handle");
       el.classList.toggle("qt-sortable", allowed);
       if (!allowed || this.plugin.settings.trigger !== "handle") {

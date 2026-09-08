@@ -11,7 +11,7 @@ import {
   type SettingDefinitionItem,
 } from "obsidian";
 import type QuietTreePlugin from "./main";
-import { orderPath, parseExclusions } from "./order";
+import { parseExclusions } from "./order";
 
 class FolderPicker extends FuzzySuggestModal<TFolder> {
   constructor(
@@ -85,7 +85,8 @@ export class ExplorerSettingsTab extends PluginSettingTab {
       }
     }
   }
-  private refreshSettings() {
+  refreshSettings() {
+    if (!this.containerEl.isConnected) return;
     if (requireApiVersion("1.13.0")) this.update();
     else this.renderLegacy();
   }
@@ -106,8 +107,7 @@ export class ExplorerSettingsTab extends PluginSettingTab {
                   .addOptions({ auto: t("auto"), zh: "中文", en: "English" })
                   .setValue(p.settings.language)
                   .onChange(async (value) => {
-                    p.settings.language = value as "auto" | "zh" | "en";
-                    await p.saveSettings();
+                    await p.saveSettings({ language: value as "auto" | "zh" | "en" });
                     p.refresh();
                     this.refreshSettings();
                   }),
@@ -129,8 +129,7 @@ export class ExplorerSettingsTab extends PluginSettingTab {
                   .addOptions({ row: t("row"), handle: t("handle") })
                   .setValue(p.settings.trigger)
                   .onChange(async (value) => {
-                    p.settings.trigger = value as "row" | "handle";
-                    await p.saveSettings();
+                    await p.saveSettings({ trigger: value as "row" | "handle" });
                     p.refresh();
                   }),
               );
@@ -153,9 +152,8 @@ export class ExplorerSettingsTab extends PluginSettingTab {
                   .setValue(p.settings[key])
                   .onChange(async (value) => {
                     p.cancelDrags();
-                    p.settings[key] = value;
                     valueEl?.setText(`${value} ms`);
-                    await p.saveSettings();
+                    await p.saveSettings({ [key]: value });
                   }),
               );
             },
@@ -163,17 +161,11 @@ export class ExplorerSettingsTab extends PluginSettingTab {
         ],
       },
     ];
-    // Hiding these controls must not erase desktop-configured paths or exclusions.
+    // Hiding these controls must not erase desktop-configured exclusions.
     if (!Platform.isMobile)
       groups.push({
         heading: t("ordering"),
         items: [
-          {
-            name: t("path"),
-            desc: t("pathHelp"),
-            aliases: ["JSON", "sort order", "排序", "数据文件"],
-            render: (setting) => this.renderPath(setting),
-          },
           {
             name: t("exclusions"),
             desc: t("exclusionsHelp"),
@@ -186,55 +178,14 @@ export class ExplorerSettingsTab extends PluginSettingTab {
       groups.push({ heading: t("error"), items: [{ name: t("readError"), render: () => {} }] });
     return groups;
   }
-  private renderPath(setting: Setting) {
-    const p = this.plugin,
-      t = p.t;
-    let path = p.settings.jsonPath;
-    setting
-      .setClass("qt-path-field")
-      .addText((text) => {
-        text
-          .setValue(path)
-          .setPlaceholder(p.defaultPath())
-          .onChange((value) => {
-            path = value;
-          });
-        text.inputEl.setAttribute("aria-label", t("path"));
-        text.inputEl.title = path;
-      })
-      .addButton((button) =>
-        button.setButtonText(t("apply")).onClick(async () => {
-          button.setDisabled(true);
-          try {
-            const next = orderPath(path, p.app.vault.configDir, p.manifest.id);
-            p.cancelDrags();
-            await p.store.switchPath(next);
-            p.settings.jsonPath = next;
-            await p.saveSettings();
-            p.refresh();
-            new Notice(t("saved"));
-            this.refreshSettings();
-          } catch (error) {
-            p.report(error);
-          } finally {
-            button.setDisabled(false);
-          }
-        }),
-      );
-  }
   private async exclusions(next: string[]) {
-    const p = this.plugin,
-      previous = p.store.rules;
+    const p = this.plugin;
     p.cancelDrags();
-    p.store.rules = next;
     try {
-      await p.store.update((order) => order);
-      p.settings.excluded = next;
-      await p.saveSettings();
+      await p.saveSettings({ excluded: next });
       p.refresh();
       this.refreshSettings();
     } catch (error) {
-      p.store.rules = previous;
       p.report(error);
     }
   }

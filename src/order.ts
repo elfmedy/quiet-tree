@@ -19,23 +19,6 @@ export function relativePath(raw: string): string {
     throw new Error("invalidPath");
   return value;
 }
-export function orderPath(raw: string, configDir: string, pluginId: string): string {
-  const value = relativePath(raw);
-  const lower = value.toLowerCase();
-  if (!lower.endsWith(".json")) throw new Error("invalidPath");
-  // Never let the order editor overwrite Obsidian or another plugin's settings.
-  if (lower.startsWith(configDir.toLowerCase() + "/")) {
-    const home = `${configDir}/plugins/${pluginId}/`.toLowerCase();
-    if (
-      !lower.startsWith(home) ||
-      ["data.json", "manifest.json", "package.json", "versions.json"].includes(
-        lower.slice(home.length),
-      )
-    )
-      throw new Error("reservedPath");
-  }
-  return value;
-}
 export function parseOrder(text: string): Order {
   const value: unknown = JSON.parse(text.replace(/^\uFEFF/, ""));
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalidJson");
@@ -146,82 +129,4 @@ export function deleteOrder(order: Order, path: string): Order {
     next[key] = key === parentPath(path) ? names.filter((n) => n !== baseName(path)) : [...names];
   }
   return next;
-}
-export interface OrderAdapter {
-  exists(path: string): Promise<boolean>;
-  read(path: string): Promise<string>;
-  write(path: string, text: string): Promise<void>;
-  mkdir(path: string): Promise<void>;
-  process(path: string, fn: (text: string) => string): Promise<string>;
-}
-export class OrderStore {
-  order = Object.create(null) as Order;
-  error: unknown = null;
-  private tail: Promise<unknown> = Promise.resolve();
-  private lastText = "";
-  constructor(
-    readonly adapter: OrderAdapter,
-    public path: string,
-    public rules: string[],
-  ) {}
-  private serial<T>(action: () => Promise<T>): Promise<T> {
-    const task = this.tail.then(action);
-    this.tail = task.catch(() => {});
-    return task;
-  }
-  private async create(path: string, order: Order): Promise<void> {
-    const parts = path.split("/");
-    for (let i = 1; i < parts.length; i++) {
-      const directory = parts.slice(0, i).join("/");
-      if (!(await this.adapter.exists(directory))) await this.adapter.mkdir(directory);
-    }
-    if (!(await this.adapter.exists(path))) await this.adapter.write(path, stringifyOrder(order));
-  }
-  async load(): Promise<boolean> {
-    return this.serial(async () => {
-      try {
-        await this.create(this.path, this.order);
-        const text = await this.adapter.read(this.path);
-        const changed = text !== this.lastText;
-        const parsed = withoutExcluded(parseOrder(text), this.rules);
-        this.order = parsed;
-        this.lastText = text;
-        this.error = null;
-        return changed;
-      } catch (error) {
-        this.error = error;
-        throw error;
-      }
-    });
-  }
-  async update(change: (current: Order) => Order): Promise<void> {
-    return this.serial(async () => {
-      try {
-        const text = await this.adapter.process(this.path, (current) =>
-          stringifyOrder(withoutExcluded(change(parseOrder(current)), this.rules)),
-        );
-        this.order = withoutExcluded(parseOrder(text), this.rules);
-        this.lastText = text;
-        this.error = null;
-      } catch (error) {
-        this.error = error;
-        throw error;
-      }
-    });
-  }
-  async switchPath(path: string): Promise<void> {
-    return this.serial(async () => {
-      // Existing files win; new paths receive a copy. The old file stays available.
-      await this.create(path, this.order);
-      const text = await this.adapter.read(path);
-      const order = withoutExcluded(parseOrder(text), this.rules);
-      this.path = path;
-      this.order = order;
-      this.lastText = text;
-      this.error = null;
-    });
-  }
-  settled(): Promise<unknown> {
-    return this.tail;
-  }
 }

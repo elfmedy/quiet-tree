@@ -120,11 +120,6 @@
 .qt-settings .qt-help li {
   margin: 4px 0;
 }
-.qt-settings .qt-path-field {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
-}
 .qt-settings .qt-exclusions-field {
   flex-direction: column;
   align-items: stretch;
@@ -138,16 +133,6 @@
   white-space: nowrap;
   min-width: 56px;
   font-variant-numeric: tabular-nums;
-}
-.qt-settings .qt-path-field .setting-item-control {
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-}
-.qt-settings .qt-path-field input {
-  flex: 1;
-  min-width: 0;
-  width: 100%;
 }
 .qt-settings .qt-add-directory {
   display: flex;

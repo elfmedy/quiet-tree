@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Store settings and the complete order snapshot in the plugin’s data.json, which Obsidian Sync tracks.
+- Use one versioned array-valued orderState field and a shared load/save queue. Settings edits preserve the latest synced ordering.
+- Hot-reload external data.json changes, cancel pending drags, and refresh settings and native sorting without writing data back or polling files.
+- Commit exclusion changes and rename ordering together; keep the last valid display and roll back file moves if saving fails.
+- Remove custom order-file paths and legacy data migration. This release requires a one-time conversion of existing ordering before deployment; the plugin supports only the new format.
+- Avoid writing empty defaults at startup while another device’s data may still be downloading.
+
 ## 0.2.3
 
 - Remove the press-progress underline, including its flash during normal clicks. Keep the drop-position guide after lifting.

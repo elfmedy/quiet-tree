@@ -1,6 +1,7 @@
 import { TFolder, type App, type TAbstractFile } from "obsidian";
 import { flattenTree, type FileTree, type TreeRow } from "../lib/explorer-model";
-import { excluded, sortItems, type OrderStore } from "./order";
+import type { DataStore } from "./data";
+import { excluded, sortItems } from "./order";
 
 export interface NativeItem {
   file: TAbstractFile;
@@ -47,7 +48,7 @@ export function snapshot(app: App, view: NativeExplorer): Snapshot {
   visit(app.vault.getRoot(), 0);
   return { tree, rows: flattenTree(tree, expanded) };
 }
-export function attachSort(view: NativeExplorer, store: OrderStore): () => void {
+export function attachSort(view: NativeExplorer, store: DataStore): () => void {
   const original = view.getSortedFolderItems;
   const hadOwn = Object.hasOwn(view, "getSortedFolderItems");
   let active = true;

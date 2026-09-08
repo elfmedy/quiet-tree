@@ -24,11 +24,6 @@ export const en = {
   settings: "Quiet Tree",
   intro:
     "Arrange the native file explorer. Hold to lift, move to choose a position, then release. Press Esc to cancel.",
-  path: "Order data file",
-  pathHelp:
-    "Enter a vault-relative file path ending in .json.\nAn existing file is loaded; a new path receives a copy of the current order.\nThe previous file is kept.",
-  apply: "Apply",
-  saved: "Saved",
   trigger: "Drag trigger",
   row: "Long press anywhere on the row",
   handle: "Right-side handle",
@@ -42,16 +37,13 @@ export const en = {
   attachment: "Add current attachment folder",
   noAttachment:
     "No single attachment directory is configured (root or current-note folders are not excluded automatically).",
-  syntax: "JSON format",
-  syntaxHelp:
-    "Keys are directory paths; / means the vault root. Values are direct child names, including file extensions. Only customized folders are recorded. Unlisted items follow in the native sort order. Use double quotes, without comments or trailing commas. Edits reload automatically.",
-  reload: "Reload sort JSON",
+  reload: "Reload plugin data",
   reset: "Restore native order for this folder",
-  ready: "Sort JSON reloaded",
-  error: "Quiet Tree: could not apply the change. Check the JSON file and path.",
-  invalidPath: "Use a vault-relative path without ..; the sort file must end in .json.",
-  reservedPath: "This path is reserved for Obsidian or plugin settings.",
-  invalidJson: "Invalid order JSON: use directory keys and arrays of unique direct child names.",
+  ready: "Plugin data reloaded",
+  error: "Quiet Tree: could not apply the change. Check the plugin data.json file.",
+  invalidPath: "Use a vault-relative directory path without ..",
+  invalidJson:
+    "Invalid data.json: orderState must be a versioned array of unique directories and direct child names.",
   unavailable:
     "This Obsidian version exposes no compatible native file explorer. Sorting was not attached.",
   locked: "This directory is excluded from custom sorting.",
@@ -71,10 +63,8 @@ export const en = {
   rollbackFailed:
     "Sorting could not be saved, and the file could not be moved back. Check its current location before continuing.",
   readError:
-    "The sort JSON cannot be read. The last valid order is retained; fix the file to continue.",
+    "The plugin data.json cannot be read. The last valid order is retained; fix the file to continue.",
   resetDone: "Native order restored for this folder",
-  containsOrder:
-    "This folder contains the active sort JSON. Choose another JSON path in settings before moving the folder with Quiet Tree.",
 } as const;
 export type TextKey = keyof typeof en;
 const zh: Record<TextKey, string> = {
@@ -101,11 +91,6 @@ const zh: Record<TextKey, string> = {
   auto: "跟随 Obsidian",
   settings: "Quiet Tree",
   intro: "直接整理原生文件列表。长按提起，移动选择位置，松手放下；按 Esc 取消。",
-  path: "排序数据文件",
-  pathHelp:
-    "填写相对于知识库的文件路径，包含 .json 后缀。\n已有文件会被读取；新路径会复制当前排序。\n切换路径后，原文件仍会保留。",
-  apply: "应用",
-  saved: "已保存",
   trigger: "拖拽触发区域",
   row: "整行长按",
   handle: "右侧手柄",
@@ -117,16 +102,12 @@ const zh: Record<TextKey, string> = {
     "输入相对于知识库的目录路径，或从列表中选择。\n该目录及子目录的内部条目不排序、不记录；目录本身仍可在上一级调整位置。\n移除规则后恢复排序功能。",
   attachment: "加入当前附件目录",
   noAttachment: "当前没有独立的附件目录（不会自动排除根目录或相对当前笔记的目录）。",
-  syntax: "JSON 语法简介",
-  syntaxHelp:
-    "键是目录路径，/ 表示知识库根目录；数组填写直接子项的名称，文件需带扩展名。仅记录自定义过的目录。未列出的项目按原生顺序追加。使用双引号，不支持注释和末尾逗号。手动修改后会自动加载。",
-  reload: "重新加载排序 JSON",
+  reload: "重新加载插件数据",
   reset: "恢复此目录的原生排序",
-  ready: "排序 JSON 已重新加载",
-  error: "Quiet Tree：未能应用更改，请检查 JSON 文件与路径。",
-  invalidPath: "请使用不含 .. 的知识库相对路径；排序文件须以 .json 结尾。",
-  reservedPath: "该路径用于 Obsidian 或插件配置，不能作为排序文件。",
-  invalidJson: "排序 JSON 无效：请使用目录键和不重复的直接子项名称数组。",
+  ready: "插件数据已重新加载",
+  error: "Quiet Tree：未能应用更改，请检查插件的 data.json。",
+  invalidPath: "请使用不含 .. 的知识库相对目录路径。",
+  invalidJson: "data.json 无效：orderState 须为带版本号的数组，目录和直接子项名称不能重复。",
   unavailable: "当前 Obsidian 的原生文件列表接口不兼容，尚未接入排序。",
   locked: "此目录已排除，不参与自定义排序。",
   moving: "正在拖拽",
@@ -143,10 +124,8 @@ const zh: Record<TextKey, string> = {
   collision: "目标目录已经存在同名文件或文件夹。",
   changed: "拖拽期间列表发生变化，请重新拖动。",
   rollbackFailed: "排序保存失败，且文件未能移回原位置。请检查文件当前位置后再继续。",
-  readError: "无法读取排序 JSON。暂时保留上次有效排序，修复文件后即可继续。",
+  readError: "无法读取插件的 data.json。暂时保留上次有效排序，修复文件后即可继续。",
   resetDone: "已恢复此目录的原生排序",
-  containsOrder:
-    "此目录包含当前排序 JSON。请先在设置中更换 JSON 路径，再用 Quiet Tree 移动该目录。",
 };
 export function translate(language: string, key: TextKey): string {
   return language.startsWith("zh") ? zh[key] : en[key];
