@@ -42,6 +42,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
           name: quiet-tree
@@ -52,10 +53,15 @@ jobs:
             dist/main.js
             dist/manifest.json
             dist/styles.css
-      - name: Publish BRAT assets
+      - name: Publish plugin release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" dist/main.js dist/manifest.json dist/styles.css --verify-tag --title "Quiet Tree $RELEASE_TAG" --generate-notes
+          notes=".github/release-notes/$RELEASE_TAG.md"
+          if [ -f "$notes" ]; then
+            gh release create "$RELEASE_TAG" dist/main.js dist/manifest.json dist/styles.css --verify-tag --title "Quiet Tree $RELEASE_TAG" --notes-file "$notes"
+          else
+            gh release create "$RELEASE_TAG" dist/main.js dist/manifest.json dist/styles.css --verify-tag --title "Quiet Tree $RELEASE_TAG" --generate-notes
+          fi

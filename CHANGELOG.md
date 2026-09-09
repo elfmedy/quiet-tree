@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Show position and parent guides at ambiguous last-child boundaries, including the option to keep the current position.
+- Show an Esc hint in the lifted desktop card and keep it clear of the folder chooser. Add a touch cancel area that pauses autoscroll and cancels on release.
+- Add top-level `dataVersion: 1`. Automatically back up and upgrade 0.2.x standalone ordering and 0.3.0 snapshots into independent plugin data, retaining settings and order.
+- Provide confirmed backup-and-reset recovery for corrupt data. Preserve future versions and wait for missing legacy files instead of saving empty ordering.
+- Add language-setting help and improve desktop alignment while retaining the native mobile layout.
+- Redesign the English and Chinese README pages with an actual drag preview, concise features, community installation, and a separate detailed guide.
+- Validate 45 unit tests, 19 native migration/recovery checks per desktop and mobile emulation, and 18 drag feedback checks per desktop and mobile emulation. Physical iPhone testing remains outstanding.
+
 ## 0.3.0
 
 - Store settings and the complete order snapshot in the plugin’s data.json, which Obsidian Sync tracks.

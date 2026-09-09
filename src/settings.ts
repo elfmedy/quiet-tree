@@ -4,6 +4,7 @@ import {
   Platform,
   Setting,
   Notice,
+  Modal,
   TFolder,
   setIcon,
   requireApiVersion,
@@ -12,6 +13,41 @@ import {
 } from "obsidian";
 import type QuietTreePlugin from "./main";
 import { parseExclusions } from "./order";
+import { canResetData } from "./data";
+
+class ResetDataModal extends Modal {
+  constructor(
+    private plugin: QuietTreePlugin,
+    private done: () => void,
+  ) {
+    super(plugin.app);
+  }
+  onOpen() {
+    const p = this.plugin,
+      t = p.t;
+    this.contentEl.createEl("h2", { text: t("resetData") });
+    this.contentEl.createEl("p", { text: t("resetDataHelp") });
+    new Setting(this.contentEl)
+      .addButton((button) => button.setButtonText(t("keepData")).onClick(() => this.close()))
+      .addButton((button) =>
+        button.setButtonText(t("confirmResetData")).onClick(async () => {
+          button.setDisabled(true);
+          try {
+            p.cancelDrags();
+            await p.store.resetInvalidData();
+            p.refresh();
+            this.close();
+            new Notice(t("resetDataDone"));
+          } catch (error) {
+            p.report(error);
+          } finally {
+            button.setDisabled(false);
+            this.done();
+          }
+        }),
+      );
+  }
+}
 
 class FolderPicker extends FuzzySuggestModal<TFolder> {
   constructor(
@@ -100,8 +136,10 @@ export class ExplorerSettingsTab extends PluginSettingTab {
         items: [
           {
             name: t("language"),
+            desc: t("languageHelp"),
             aliases: ["language", "语言"],
             render: (setting) => {
+              setting.settingEl.addClass("qt-language-field");
               setting.addDropdown((dropdown) =>
                 dropdown
                   .addOptions({ auto: t("auto"), zh: "中文", en: "English" })
@@ -175,7 +213,32 @@ export class ExplorerSettingsTab extends PluginSettingTab {
         ],
       });
     if (p.store.error)
-      groups.push({ heading: t("error"), items: [{ name: t("readError"), render: () => {} }] });
+      groups.unshift({
+        heading: t("dataRecovery"),
+        items: [
+          {
+            name: p.errorText(p.store.error),
+            render: (setting) => {
+              setting.addButton((button) =>
+                button.setButtonText(t("reload")).onClick(async () => {
+                  button.setDisabled(true);
+                  try {
+                    await p.reload(true);
+                  } finally {
+                    this.refreshSettings();
+                  }
+                }),
+              );
+              if (canResetData(p.store.error))
+                setting.addButton((button) =>
+                  button
+                    .setButtonText(t("resetData"))
+                    .onClick(() => new ResetDataModal(p, () => this.refreshSettings()).open()),
+                );
+            },
+          },
+        ],
+      });
     return groups;
   }
   private async exclusions(next: string[]) {

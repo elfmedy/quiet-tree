@@ -1,4 +1,20 @@
-# 0.3.0 validation
+# 0.4.0 validation
+
+## Presentation and settings polish
+
+The README now separates English and Chinese introductions, shows a cropped native Sandbox drag preview, leads with features and community installation, and links to a detailed usage/data guide. The preview uses a dedicated `Quiet Tree Demo` folder; unrelated explorer rows were hidden only for capture and restored afterwards. The plugin description now states its main function in plain language.
+
+The language setting includes a localized description. Scoped alignment keeps its text and control centered on desktop, without changing other settings. Native desktop settings at 900 px show less than 0.01 px difference between their vertical centers and no overflow. At 390 px mobile emulation, Obsidian keeps its native stacked layout with the description visible; both Chinese and English fit without overflow. The setting remains searchable. Typecheck, lint and release metadata checks pass. Verified in Sandbox; work is updated through the community plugin manager.
+
+## Sandbox drag feedback
+
+The local test build adds guides for last-child boundary choices (including a no-op), an Esc hint in the lifted mouse card, and a touch-only cancel drop area. The card avoids the chooser so the Esc hint remains readable. Entering the cancel area clears drop targets and pauses autoscroll; release coordinates decide cancellation.
+
+`tests/native-drag-feedback.js` is restricted to **Obsidian Sandbox**. It creates a small `Quiet Tree 交互测试` fixture, exercises native pointer/touch events, advances the drag resolver explicitly so minimized-window frame throttling cannot affect the assertions, and verifies exact data preservation after cancellation. It also verifies that the Sandbox's converted data can save real reorders. Run on desktop and mobile emulation, then return Sandbox to desktop mode. Physical iPhone testing remains outstanding.
+
+Sandbox's old settings and separate sort file were initially converted manually. The local build now includes a tested one-time runtime upgrade for both 0.2.x standalone orders and 0.3.0 unversioned snapshots, adding top-level `dataVersion: 1`. It backs up before writing, refuses unknown future versions, and leaves missing legacy files pending rather than saving empty order. Corrupt data has an explicit backup-and-reset confirmation in settings. These changes were validated in Sandbox before release; no files were copied into work.
+
+Validation: 45 unit tests pass, including migration independence, retry after backup/save failure, future-version protection, exact corrupt-data backup, recognizable settings retention, and refusing reset when sync has already repaired the data. `tests/native-data-migration.js` passes 19 checks each in desktop and mobile emulation at 390 × 760; it upgrades from standalone data on actual plugin startup, verifies backups and restart behavior, exercises both confirmation buttons, and restores the Sandbox's original data in `finally`. Desktop settings may live in a separate native window, so modal assertions use the settings container's owner document. The mobile confirmation was visually checked. Physical iPhone validation remains outstanding.
 
 Run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` before installation. The official Obsidian lint rules check API versions and searchable settings definitions.
 
@@ -7,7 +23,7 @@ Run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` before 
 Use a separate Obsidian profile and a vault named **Quiet Tree QA**, never a user's vault or a Sandbox shared with another development task. Create `Z.md`, `B.md`, `A/B.md`, `A/C.md`, and `assets/Excluded.md`. Configure the attachment directory as `assets`. Set the Quiet Tree data.json to:
 
 ```json
-{"language":"auto","trigger":"row","delay":500,"mouseDelay":200,"excluded":["assets"],"orderState":[1,[["/",["Z.md","A","B.md","assets"]],["A",["C.md","B.md"]]]]}
+{"dataVersion":1,"language":"auto","trigger":"row","delay":500,"mouseDelay":200,"excluded":["assets"],"orderState":[1,[["/",["Z.md","A","B.md","assets"]],["A",["C.md","B.md"]]]]}
 ```
 
 The harness exposes the Obsidian API as `window.qtTestApi` through a test-only helper plugin. Evaluate these scripts in the main vault window using an awaited Obsidian developer evaluation or its local debugger:

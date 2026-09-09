@@ -20,6 +20,24 @@ import {
 } from "../lib/drag-geometry.ts";
 import { resolveTreeHit, emptyHit, chooseDepth } from "../lib/drag-hit-test.ts";
 
+test("last source row exposes its folder boundary while its center stays a quiet no-op", () => {
+  const { tree, expanded } = createScenario("boundary");
+  const rows = flattenTree(tree, expanded);
+  const index = rows.findIndex((row) => row.id === "c");
+  const center = resolveTreeHit(tree, rows, "c", 36, 64, (index + 0.5) * 36);
+  assert.equal(center.noOp, true);
+  assert.equal(center.band, null);
+  const edge = resolveTreeHit(tree, rows, "c", 36, 64, (index + 0.9) * 36, center);
+  assert.deepEqual(
+    edge.candidates.map((t) => t.parentId),
+    ["a", null],
+  );
+  assert.equal(edge.noOp, true);
+  assert.equal(moveNode(tree, "c", edge.candidates[0]).changed, false);
+  assert.equal(moveNode(tree, "c", edge.candidates[1]).changed, true);
+  assert.deepEqual(resolveTreeHit(tree, rows, "c", 36, 64, (index + 0.9) * 36, edge), edge);
+});
+
 const destination = (parentId, beforeId = null) => ({
   parentId,
   beforeId,

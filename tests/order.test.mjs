@@ -4,7 +4,7 @@ import { translate } from "../src/i18n.ts";
 import { createScenario } from "../lib/explorer-model.ts";
 import assert from "node:assert/strict";
 import { readSettings, loadSettings } from "../src/settings-data.ts";
-import { DataStore, readOrderState } from "../src/data.ts";
+import { DataStore, readOrderState, canResetData } from "../src/data.ts";
 
 test("desktop and touch delays are independent and customized values are preserved", () => {
   const defaults = loadSettings(null, ["assets"]);
@@ -147,9 +147,24 @@ function memory(data = null) {
   return {
     data,
     fail: false,
+    failBackup: false,
+    backups: [],
+    legacy: {},
+    legacyReads: 0,
     writes: 0,
     async load() {
       return structuredClone(this.data);
+    },
+    async loadRaw() {
+      return this.rawText ?? (this.data === null ? null : JSON.stringify(this.data));
+    },
+    async loadLegacy(path) {
+      this.legacyReads++;
+      return this.legacy[path] ?? null;
+    },
+    async backup(data, legacy) {
+      if (this.failBackup) throw Error("backup denied");
+      this.backups.push(structuredClone({ data, legacy }));
     },
     async save(next) {
       if (this.fail) throw Error("disk full");
@@ -183,16 +198,14 @@ test("snapshot is a single versioned array and rejects partial, duplicate or mal
     "constructor",
   ]);
 });
-test("new device loads without writing defaults; old standalone format is not consumed", async () => {
+test("new device loads without writing defaults or probing old files", async () => {
   const io = memory(),
     store = new DataStore(io, ["assets"]);
   await store.load();
   assert.equal(io.writes, 0);
   assert.equal(io.data, null);
-  io.data = { jsonPath: "old.json", delay: 350 };
-  await assert.rejects(store.load());
-  await assert.rejects(store.saveSettings({ language: "en" }));
-  assert.equal(io.writes, 0);
+  assert.equal(io.legacyReads, 0);
+  assert.equal(io.backups.length, 0);
 });
 test("settings and order writes share one queue and preserve latest synced fields", async () => {
   const io = memory(),
@@ -213,6 +226,7 @@ test("settings and order writes share one queue and preserve latest synced field
   assert.equal(io.data.mouseDelay, 280);
   assert.equal(io.data.delay, 630);
   assert.ok(Array.isArray(io.data.orderState));
+  assert.equal(io.data.dataVersion, 1);
   io.data.language = "zh";
   io.data.orderState = snapshot({ Remote: ["新.md"], assets: ["image.png"] });
   await store.saveSettings({ trigger: "handle" });
@@ -227,10 +241,14 @@ test("settings and order writes share one queue and preserve latest synced field
   assert.deepEqual(readOrderState(io.data.orderState).Remote, ["新.md"]);
 });
 test("sync replaces entire snapshot without writeback and tolerates files arriving later", async () => {
-  const io = memory({ language: "en", orderState: snapshot({ Old: ["old.md"] }) });
+  const io = memory({ dataVersion: 1, language: "en", orderState: snapshot({ Old: ["old.md"] }) });
   const store = new DataStore(io, []);
   await store.load();
-  io.data = { language: "zh", orderState: snapshot({ "/": ["Future.md", "B.md", "A.md"] }) };
+  io.data = {
+    dataVersion: 1,
+    language: "zh",
+    orderState: snapshot({ "/": ["Future.md", "B.md", "A.md"] }),
+  };
   assert.equal(await store.load(), true);
   assert.equal(store.order.Old, undefined);
   assert.equal(store.settings.language, "zh");
@@ -246,7 +264,7 @@ test("sync replaces entire snapshot without writeback and tolerates files arrivi
   assert.equal(io.writes, 0);
 });
 test("invalid synced data and save failures preserve both last-good settings and ordering", async () => {
-  const io = memory({ trigger: "row", orderState: snapshot({ A: ["B.md"] }) });
+  const io = memory({ dataVersion: 1, trigger: "row", orderState: snapshot({ A: ["B.md"] }) });
   const store = new DataStore(io, []);
   await store.load();
   io.fail = true;
@@ -272,6 +290,7 @@ test("invalid synced data and save failures preserve both last-good settings and
 });
 test("exclusions and renames commit together and repeated filesystem events do not resave", async () => {
   const io = memory({
+    dataVersion: 1,
     excluded: ["A/assets"],
     orderState: snapshot({ "/": ["A"], A: ["assets", "B.md"], "A/assets": ["image.png"] }),
   });
@@ -290,4 +309,187 @@ test("exclusions and renames commit together and repeated filesystem events do n
   assert.equal(io.writes, writes);
   await store.saveSettings({ excluded: ["D"] });
   assert.deepEqual(io.data.orderState, [1, [["/", []]]]);
+});
+
+test("0.2.x settings and standalone orders migrate once, independently of the old file", async () => {
+  const original = {
+    jsonPath: "自定义/顺序.json",
+    language: "zh",
+    delay: 340,
+    excluded: ["assets"],
+  };
+  const io = memory(original);
+  io.legacy[original.jsonPath] = '{"/": ["D", "A"], "A": ["C.md", "B.md"], "assets": ["x.png"]}';
+  const oldText = io.legacy[original.jsonPath];
+  const store = new DataStore(io, []);
+  await store.load();
+  assert.equal(io.writes, 1);
+  assert.equal(io.data.dataVersion, 1);
+  assert.equal(io.data.jsonPath, undefined);
+  assert.equal(io.data.delay, 340);
+  assert.equal(io.data.mouseDelay, 200);
+  assert.deepEqual(io.data.excluded, ["assets"]);
+  assert.deepEqual(store.order.A, ["C.md", "B.md"]);
+  assert.equal(store.order.assets, undefined);
+  assert.deepEqual(io.backups, [
+    { data: original, legacy: { path: original.jsonPath, text: oldText } },
+  ]);
+  delete io.legacy[original.jsonPath];
+  await store.load();
+  const restarted = new DataStore(io, []);
+  await restarted.load();
+  await restarted.saveSettings({ trigger: "handle" });
+  assert.deepEqual(restarted.order.A, ["C.md", "B.md"]);
+  assert.equal(io.legacyReads, 1);
+  assert.equal(io.backups.length, 1);
+});
+
+test("unversioned 0.3.0 snapshot gets a data version without losing settings or order", async () => {
+  const original = {
+    language: "en",
+    mouseDelay: 260,
+    excluded: [],
+    orderState: snapshot({ A: ["C", "B"] }),
+  };
+  const io = memory(original),
+    store = new DataStore(io, ["assets"]);
+  await Promise.all([store.load(), store.load()]);
+  assert.equal(io.writes, 1);
+  assert.equal(io.backups.length, 1);
+  assert.deepEqual(io.data.orderState, original.orderState);
+  assert.equal(io.data.mouseDelay, 260);
+  assert.deepEqual(io.data.excluded, []);
+  await store.saveSettings({ language: "zh" });
+  assert.equal(io.backups.length, 1);
+  assert.equal(io.legacyReads, 0);
+});
+
+test("failed backup or migration save does not publish defaults and can be retried", async () => {
+  for (const failure of ["failBackup", "fail"]) {
+    const original = { jsonPath: "old.json", delay: 340 };
+    const io = memory(original),
+      store = new DataStore(io, []);
+    io.legacy["old.json"] = '{"A":["C", "B"]}';
+    io[failure] = true;
+    await assert.rejects(
+      store.load(),
+      new RegExp(failure === "failBackup" ? "migrationBackupFailed" : "migrationSaveFailed"),
+    );
+    assert.deepEqual(io.data, original);
+    assert.equal(io.writes, 0);
+    assert.deepEqual(Object.keys(store.order), []);
+    assert.equal(store.settings.delay, 500);
+    io[failure] = false;
+    await store.load();
+    assert.equal(store.error, null);
+    assert.deepEqual(store.order.A, ["C", "B"]);
+    assert.equal(store.settings.delay, 340);
+    assert.equal(io.writes, 1);
+  }
+});
+
+test("missing legacy file waits for sync; broken or unsafe legacy data is never auto-cleared", async () => {
+  const io = memory({ jsonPath: "old.json" }),
+    store = new DataStore(io, []);
+  await assert.rejects(store.load(), /missingLegacyOrder/);
+  await assert.rejects(store.saveSettings({ language: "zh" }), /missingLegacyOrder/);
+  assert.equal(canResetData(store.error), false);
+  assert.equal(io.writes, 0);
+  assert.equal(io.backups.length, 0);
+  io.legacy["old.json"] = '{"A":["C", "B"]}';
+  await store.load();
+  assert.deepEqual(store.order.A, ["C", "B"]);
+  for (const jsonPath of ["../outside.json", "C:/outside.json", "/outside.json"]) {
+    io.data = { jsonPath };
+    const reads = io.legacyReads;
+    await assert.rejects(store.load(), /invalidPath/);
+    assert.equal(io.legacyReads, reads);
+  }
+  io.data = { jsonPath: "old.json" };
+  io.legacy["old.json"] = '{"A":["C", "C"]}';
+  await assert.rejects(store.load(), /invalidLegacyOrder/);
+  assert.equal(canResetData(store.error), true);
+  assert.equal(io.writes, 1);
+  assert.deepEqual(store.order.A, ["C", "B"]);
+});
+
+test("future versions and malformed current snapshots never migrate or reset automatically", async () => {
+  for (const original of [
+    { dataVersion: 2, orderState: snapshot({ A: ["C"] }) },
+    { orderState: [2, []] },
+    { dataVersion: 1, orderState: [2, []] },
+  ]) {
+    const io = memory(original),
+      store = new DataStore(io, []);
+    await assert.rejects(store.load(), /newerDataVersion/);
+    await assert.rejects(store.saveSettings({ language: "en" }), /newerDataVersion/);
+    await assert.rejects(store.resetInvalidData(), /newerDataVersion/);
+    assert.equal(canResetData(store.error), false);
+    assert.deepEqual(io.data, original);
+    assert.equal(io.writes, 0);
+    assert.equal(io.backups.length, 0);
+  }
+  for (const original of [
+    {},
+    { dataVersion: "1" },
+    { dataVersion: 1, jsonPath: "old.json" },
+    { orderState: null },
+  ]) {
+    const io = memory(original),
+      store = new DataStore(io, []);
+    await assert.rejects(store.load(), /invalidJson/);
+    assert.equal(io.writes, 0);
+    assert.equal(io.legacyReads, 0);
+    assert.equal(io.backups.length, 0);
+  }
+});
+
+test("explicit recovery backs up exact broken JSON and preserves recognizable settings", async () => {
+  for (const broken of [
+    '{"orderState":',
+    '{"dataVersion":1,"language":"zh","delay":340,"excluded":["assets"],"orderState":null}',
+  ]) {
+    const io = memory({ dataVersion: 1, language: "en", orderState: snapshot({ A: ["B"] }) });
+    const store = new DataStore(io, []);
+    await store.load();
+    io.rawText = broken;
+    io.failBackup = true;
+    await assert.rejects(store.resetInvalidData(), /migrationBackupFailed/);
+    assert.deepEqual(store.order.A, ["B"]);
+    assert.equal(io.writes, 0);
+    io.failBackup = false;
+    await store.resetInvalidData();
+    assert.equal(io.backups[0].data, broken);
+    assert.equal(io.data.dataVersion, 1);
+    assert.deepEqual(io.data.orderState, [1, []]);
+    assert.equal(io.data.language, broken.includes('"zh"') ? "zh" : "en");
+    assert.equal(store.error, null);
+    await store.update((order) => {
+      order.A = ["C"];
+      return order;
+    });
+    assert.deepEqual(store.order.A, ["C"]);
+  }
+});
+
+test("explicit recovery of invalid legacy order saves both files before detaching", async () => {
+  const io = memory({ jsonPath: "old.json", trigger: "handle" }),
+    store = new DataStore(io, []);
+  io.legacy["old.json"] = "{broken";
+  await assert.rejects(store.load(), /invalidLegacyOrder/);
+  await store.resetInvalidData();
+  assert.equal(io.backups[0].legacy.text, "{broken");
+  assert.equal(io.data.trigger, "handle");
+  assert.equal(io.data.jsonPath, undefined);
+  assert.deepEqual(io.data.orderState, [1, []]);
+});
+
+test("recovery refuses a now-valid synced snapshot instead of resetting it", async () => {
+  const original = { dataVersion: 1, orderState: snapshot({ A: ["B", "C"] }) };
+  const io = memory(original),
+    store = new DataStore(io, []);
+  await assert.rejects(store.resetInvalidData(), /dataChanged/);
+  assert.deepEqual(io.data, original);
+  assert.equal(io.writes, 0);
+  assert.equal(io.backups.length, 0);
 });

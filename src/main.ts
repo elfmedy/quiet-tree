@@ -57,6 +57,29 @@ export default class QuietTreePlugin extends Plugin {
           return data;
         },
         save: (data) => this.saveData(data),
+        loadRaw: async () => {
+          const adapter = this.app.vault.adapter;
+          const path = this.manifest.dir + "/data.json";
+          return (await adapter.exists(path)) ? adapter.read(path) : null;
+        },
+        loadLegacy: async (path) => {
+          const adapter = this.app.vault.adapter;
+          return (await adapter.exists(path)) ? adapter.read(path) : null;
+        },
+        backup: async (data, legacy) => {
+          const adapter = this.app.vault.adapter;
+          const root = this.manifest.dir + "/backups";
+          if (!(await adapter.exists(root))) await adapter.mkdir(root);
+          const base = root + "/data-v1-" + Date.now();
+          let path = base;
+          for (let suffix = 1; await adapter.exists(path); suffix++) path = base + "-" + suffix;
+          await adapter.mkdir(path);
+          await adapter.write(
+            path + "/data.json",
+            typeof data === "string" ? data : JSON.stringify(data, null, 2) + "\n",
+          );
+          if (legacy) await adapter.write(path + "/sort-order.json", legacy.text);
+        },
       },
       this.attachmentRules(),
     );
@@ -124,16 +147,26 @@ export default class QuietTreePlugin extends Plugin {
   }
   report(error: unknown, fallback: TextKey = "error") {
     console.error("[Quiet Tree]", error);
+    new Notice(this.errorText(error, fallback), 7000);
+    this.settingsTab?.refreshSettings();
+  }
+  errorText(error: unknown, fallback: TextKey = "readError"): string {
     const key = error instanceof Error ? error.message : "";
     const known: TextKey[] = [
       "invalidPath",
       "invalidJson",
+      "newerDataVersion",
+      "missingLegacyOrder",
+      "invalidLegacyOrder",
+      "migrationBackupFailed",
+      "migrationSaveFailed",
+      "dataChanged",
       "collision",
       "locked",
       "changed",
       "rollbackFailed",
     ];
-    new Notice(this.t(known.includes(key as TextKey) ? (key as TextKey) : fallback), 7000);
+    return this.t(known.includes(key as TextKey) ? (key as TextKey) : fallback);
   }
   async saveSettings(patch: Partial<Settings>) {
     await this.store.saveSettings(patch);

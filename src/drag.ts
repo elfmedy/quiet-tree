@@ -1,7 +1,7 @@
 import { setIcon } from "obsidian";
 import { emptyHit, normalizeHit, resolveTreeHit, type DragHit } from "../lib/drag-hit-test";
-import { makeBoundaryPicker, pickerHit, type BoundaryPicker } from "../lib/drag-geometry";
-import { targetKey } from "../lib/explorer-model";
+import { contains, makeBoundaryPicker, pickerHit, type BoundaryPicker } from "../lib/drag-geometry";
+import { isNoopMove, targetKey } from "../lib/explorer-model";
 import type QuietTreePlugin from "./main";
 import { snapshot, type NativeExplorer, type Snapshot } from "./native";
 import { excluded, parentPath } from "./order";
@@ -36,6 +36,8 @@ export class DragController {
   private guide?: HTMLElement;
   private surface?: HTMLElement;
   private pickerEl?: HTMLElement;
+  private cancelZone?: HTMLElement;
+  private cancelHovered = false;
   private picker: BoundaryPicker | null = null;
   private pickerKey = "";
   private pickerSince = 0;
@@ -347,7 +349,30 @@ export class DragController {
     const badge = this.dom.createSpan();
     badge.className = "qt-ghost-badge";
     badge.textContent = this.plugin.t("lifted");
-    card.append(grip, icon, title, badge);
+    const header = this.dom.createDiv();
+    header.className = "qt-ghost-row";
+    header.append(grip, icon, title, badge);
+    card.append(header);
+    if (p.input === "mouse") {
+      const hint = this.dom.createDiv();
+      hint.className = "qt-ghost-cancel";
+      const [before, after] = this.plugin.t("cancelWithKey").split("{key}");
+      const key = this.dom.createEl("kbd");
+      key.textContent = "Esc";
+      hint.append(before, key, after);
+      card.append(hint);
+    } else {
+      this.cancelZone = this.dom.createDiv();
+      this.cancelZone.className = "qt-cancel-zone";
+      this.cancelZone.setAttribute("role", "status");
+      const icon = this.dom.createSpan();
+      setIcon(icon, "x");
+      const text = this.dom.createSpan();
+      text.className = "qt-cancel-text";
+      text.textContent = this.plugin.t("dragToCancel");
+      this.cancelZone.append(icon, text);
+      this.doc.body.append(this.cancelZone);
+    }
     const label = this.dom.createSpan();
     label.className = "qt-ghost-label";
     label.hidden = true;
@@ -413,6 +438,22 @@ export class DragController {
       height: `${bounds.height}px`,
     });
     const measured = this.measured();
+    this.cancelHovered =
+      !!this.cancelZone && contains(this.cancelZone.getBoundingClientRect(), p.x, p.y);
+    this.cancelZone?.classList.toggle("is-active", this.cancelHovered);
+    const cancelText = this.cancelZone?.querySelector(".qt-cancel-text");
+    if (cancelText) {
+      const text = this.plugin.t(this.cancelHovered ? "releaseToCancel" : "dragToCancel");
+      if (cancelText.textContent !== text) cancelText.textContent = text;
+    }
+    if (this.cancelHovered) {
+      this.hit = emptyHit;
+      this.picker = null;
+      this.pickerKey = "";
+      this.hoverId = "";
+      this.paint(measured);
+      return;
+    }
     if (!measured.length) {
       this.hit = emptyHit;
       return;
@@ -485,7 +526,9 @@ export class DragController {
             this.hit.band.choice,
             46,
             this.win.innerWidth,
-            this.win.innerHeight,
+            this.cancelZone
+              ? this.cancelZone.getBoundingClientRect().top - 8
+              : this.win.innerHeight,
             p.x,
             p.y,
             this.root.scrollTop,
@@ -532,15 +575,33 @@ export class DragController {
   private paint(rows: Measured[]) {
     const p = this.press!;
     const bounds = this.root.getBoundingClientRect();
-    const width = this.ghost!.getBoundingClientRect().width;
+    const { width, height } = this.ghost!.getBoundingClientRect();
     const x = Math.max(
       8,
       Math.min(p.input === "touch" ? p.x - width / 2 : p.x + 16, this.win.innerWidth - width - 8),
     );
-    const y = Math.max(
+    let y = Math.max(
       8,
-      Math.min(p.y + (p.input === "touch" ? -64 : 14), this.win.innerHeight - 76),
+      Math.min(p.y + (p.input === "touch" ? -height - 24 : 14), this.win.innerHeight - height - 8),
     );
+    // Keep the cancellation hint readable while the pointer enters the chooser.
+    if (
+      this.picker &&
+      x < this.picker.left + this.picker.width &&
+      x + width > this.picker.left &&
+      y < this.picker.top + this.picker.height &&
+      y + height > this.picker.top
+    ) {
+      const above = this.picker.top - height - 8;
+      const below = this.picker.top + this.picker.height + 8;
+      const bottom = this.cancelZone?.getBoundingClientRect().top ?? this.win.innerHeight;
+      y =
+        p.input === "touch" && above >= 8
+          ? above
+          : below + height <= bottom - 8
+            ? below
+            : Math.max(8, above);
+    }
     this.ghost!.style.transform = `translate3d(${x}px,${y}px,0)`;
     // Position is shown on the tree. Only errors need an additional message.
     const text = this.hit.invalid ? this.plugin.t("invalid") : "";
@@ -553,7 +614,7 @@ export class DragController {
     const lineY = this.gapY(rows);
     this.line!.hidden =
       !target ||
-      this.hit.noOp ||
+      (this.hit.noOp && !this.picker) ||
       target.kind === "inside" ||
       lineY < bounds.top ||
       lineY > bounds.bottom;
@@ -576,14 +637,16 @@ export class DragController {
       );
       this.line!.style.transform = `translate3d(${left}px,${lineY}px,0)`;
       this.line!.style.width = `${Math.max(20, bounds.right - left - 12)}px`;
-      if (!this.line!.hidden && target.parentId) {
+      if (!this.line!.hidden) {
         const top = Math.max(
           bounds.top,
           parent?.rect.bottom ??
             rows.find((row) => row.rect.bottom > bounds.top)?.rect.top ??
             bounds.top,
         );
-        const descendants = rows.filter((row) => row.id.startsWith(target.parentId! + "/"));
+        const descendants = target.parentId
+          ? rows.filter((row) => row.id.startsWith(target.parentId! + "/"))
+          : rows;
         const bottom = Math.min(bounds.bottom, descendants.at(-1)?.rect.bottom ?? lineY);
         this.guide!.hidden = top >= bottom;
         Object.assign(this.guide!.style, {
@@ -632,7 +695,9 @@ export class DragController {
           name.textContent = description.directory;
           name.title = description.path;
           const position = this.dom.createSpan();
-          position.textContent = description.position;
+          position.textContent = isNoopMove(this.data!.tree, p.id, candidate)
+            ? this.plugin.t("unchanged")
+            : description.position;
           text.append(name, position);
           const check = this.dom.createSpan();
           check.className = "qt-picker-check";
@@ -653,17 +718,22 @@ export class DragController {
       p = this.press;
     if (
       !this.picker &&
+      !this.cancelHovered &&
       p.x >= rect.left &&
       p.x <= rect.right &&
       p.y >= rect.top &&
       p.y <= rect.bottom
     ) {
       const edge = 40;
+      const bottom = Math.min(
+        rect.bottom,
+        this.cancelZone ? this.cancelZone.getBoundingClientRect().top - 12 : rect.bottom,
+      );
       const delta =
         p.y < rect.top + edge
           ? -Math.min(9, (rect.top + edge - p.y) / 4)
-          : p.y > rect.bottom - edge
-            ? Math.min(9, (p.y - rect.bottom + edge) / 4)
+          : p.y > bottom - edge
+            ? Math.min(9, (p.y - bottom + edge) / 4)
             : 0;
       if (delta) this.root.scrollTop += delta;
     }
@@ -724,6 +794,9 @@ export class DragController {
     this.surface = undefined;
     this.guide?.remove();
     this.guide = undefined;
+    this.cancelZone?.remove();
+    this.cancelZone = undefined;
+    this.cancelHovered = false;
     this.ghost?.remove();
     this.line?.remove();
     this.pickerEl?.remove();

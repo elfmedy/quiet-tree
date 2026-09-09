@@ -77,7 +77,11 @@ export function resolveTreeHit(
   const row = rows[index],
     fraction = (y - index * rowHeight) / rowHeight;
   const node = tree.nodes[row.id];
-  if (row.id === id && fraction >= 0 && fraction <= 1) {
+  const sourceBoundary =
+    row.id === id &&
+    (fraction < 0.25 || fraction > 0.75) &&
+    gapTargets(tree, rows, Math.round(y / rowHeight), id).length > 1;
+  if (row.id === id && fraction >= 0 && fraction <= 1 && !sourceBoundary) {
     return normalizeHit(tree, rows, id, {
       ...emptyHit,
       target: {
@@ -90,6 +94,7 @@ export function resolveTreeHit(
   }
   const wasInside = previous.target?.kind === "inside" && previous.target.parentId === row.id;
   if (
+    row.id !== id &&
     node.kind === "folder" &&
     fraction > (wasInside ? 0.2 : 0.32) &&
     fraction < (wasInside ? 0.8 : 0.68)

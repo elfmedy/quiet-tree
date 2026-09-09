@@ -20,6 +20,7 @@ export const en = {
   add: "Add",
   remove: "Remove",
   language: "Language",
+  languageHelp: "Choose the language for Quiet Tree, or follow Obsidian.",
   auto: "Follow Obsidian",
   settings: "Quiet Tree",
   intro:
@@ -43,13 +44,35 @@ export const en = {
   error: "Quiet Tree: could not apply the change. Check the plugin data.json file.",
   invalidPath: "Use a vault-relative directory path without ..",
   invalidJson:
-    "Invalid data.json: orderState must be a versioned array of unique directories and direct child names.",
+    "Invalid data.json format. The original file and last valid order are retained; repair the file and reload plugin data.",
+  newerDataVersion:
+    "This data.json was written by a newer Quiet Tree. Update the plugin; the file has not been changed.",
+  missingLegacyOrder:
+    "The old sorting file is missing. Sync or restore the JSON file specified by jsonPath, then reload plugin data to finish upgrading. No empty order was saved.",
+  invalidLegacyOrder:
+    "The old sorting file is invalid. Repair the JSON file specified by jsonPath, then reload plugin data. The original files have not been changed.",
+  migrationBackupFailed:
+    "Could not back up the old data. Check storage permissions and free space, then reload plugin data to retry the upgrade. The original data has not been overwritten.",
+  migrationSaveFailed:
+    "Could not save the upgraded data. A backup is in the Quiet Tree plugin folder under backups. Check storage and reload plugin data to retry.",
+  dataRecovery: "Data recovery",
+  resetData: "Back up and reset ordering",
+  resetDataHelp:
+    "Back up the invalid data in the Quiet Tree plugin folder under backups, then reset all custom ordering. Recognizable settings will be retained. Notes and folders will not be moved or deleted. Resetting takes effect only if the backup succeeds; the new order may sync to your other devices.",
+  keepData: "Keep current data",
+  confirmResetData: "Back up and reset",
+  resetDataDone: "Invalid data backed up and ordering reset. You can sort again.",
+  dataChanged:
+    "The data changed while recovery was open. Reload plugin data before trying again; nothing was reset.",
   unavailable:
     "This Obsidian version exposes no compatible native file explorer. Sorting was not attached.",
   locked: "This directory is excluded from custom sorting.",
   moving: "Dragging",
   hold: "Hold to drag",
   cancel: "Release outside the list or press Esc to cancel",
+  cancelWithKey: "Press {key} to cancel",
+  dragToCancel: "Drag here to cancel",
+  releaseToCancel: "Release to cancel",
   choose: "Which folder?",
   root: "Vault root",
   inside: "Move into",
@@ -88,6 +111,7 @@ const zh: Record<TextKey, string> = {
   add: "添加",
   remove: "移除",
   language: "语言",
+  languageHelp: "选择 Quiet Tree 的界面语言，默认跟随 Obsidian。",
   auto: "跟随 Obsidian",
   settings: "Quiet Tree",
   intro: "直接整理原生文件列表。长按提起，移动选择位置，松手放下；按 Esc 取消。",
@@ -107,12 +131,32 @@ const zh: Record<TextKey, string> = {
   ready: "插件数据已重新加载",
   error: "Quiet Tree：未能应用更改，请检查插件的 data.json。",
   invalidPath: "请使用不含 .. 的知识库相对目录路径。",
-  invalidJson: "data.json 无效：orderState 须为带版本号的数组，目录和直接子项名称不能重复。",
+  invalidJson: "data.json 格式无效。已保留原文件及上次有效排序；修复文件后重新加载插件数据即可。",
+  newerDataVersion: "此 data.json 来自更高版本的 Quiet Tree，请更新插件后再使用。原文件未被修改。",
+  missingLegacyOrder:
+    "未找到旧排序文件。请同步或恢复 jsonPath 指定的 JSON 文件，再重新加载插件数据完成升级；没有写入空排序。",
+  invalidLegacyOrder:
+    "旧排序文件格式无效。请修复 jsonPath 指定的 JSON 文件，再重新加载插件数据；原文件未被修改。",
+  migrationBackupFailed:
+    "旧数据备份失败。请检查存储权限和剩余空间，再重新加载插件数据重试升级；原数据未被覆盖。",
+  migrationSaveFailed:
+    "升级后的数据保存失败。备份位于 Quiet Tree 插件目录的 backups 内；请检查存储并重新加载插件数据重试。",
+  dataRecovery: "数据恢复",
+  resetData: "备份并重置排序",
+  resetDataHelp:
+    "先将损坏数据备份到 Quiet Tree 插件目录的 backups 内，再清除所有自定义排序。保留能识别的设置，不会移动或删除任何笔记、目录。只有备份成功才会重置；重置后的排序可能同步到其他设备。",
+  keepData: "保留当前数据",
+  confirmResetData: "备份并重置",
+  resetDataDone: "已备份损坏数据并重置排序，可以重新拖动排序了。",
+  dataChanged: "恢复期间数据已发生变化，请先重新加载插件数据再重试；没有重置任何数据。",
   unavailable: "当前 Obsidian 的原生文件列表接口不兼容，尚未接入排序。",
   locked: "此目录已排除，不参与自定义排序。",
   moving: "正在拖拽",
   hold: "长按拖拽",
   cancel: "移出列表松手或按 Esc 取消",
+  cancelWithKey: "按 {key} 取消",
+  dragToCancel: "拖到这里取消",
+  releaseToCancel: "松手取消",
   choose: "放到哪个目录？",
   root: "知识库根目录",
   inside: "移入",
