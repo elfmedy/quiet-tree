@@ -84,16 +84,18 @@
     await sleep(300);
     drag.resolve();
     check(
-      drag.picker && drag.hit.noOp && !drag.line.hidden && !drag.guide.hidden,
-      "Last-child no-op boundary shows both guides",
+      drag.picker &&
+        drag.hit.noOp &&
+        !drag.line.hidden &&
+        !document.querySelector(".qt-parent-guide"),
+      "Last-child no-op boundary shows the insertion line without a vertical guide",
     );
     check(
       drag.pickerEl.querySelector(".is-selected .qt-picker-text > span").textContent ===
         p.t("unchanged"),
       "No-op option explicitly keeps current position",
     );
-    const innerX = drag.line.style.transform,
-      innerTop = drag.guide.style.top;
+    const innerX = drag.line.style.transform;
     const picker = drag.picker;
     row.dispatchEvent(
       pointer(
@@ -107,16 +109,18 @@
     check(
       !drag.hit.noOp &&
         !drag.line.hidden &&
-        !drag.guide.hidden &&
         drag.line.style.transform !== innerX &&
-        drag.guide.style.top !== innerTop,
-      "Outer choice changes indentation and parent guide range",
+        drag.hit.target.parentId === base &&
+        !document.querySelector(".qt-parent-guide"),
+      "Outer choice changes insertion indentation and target folder without a vertical guide",
     );
     const card = drag.ghost.getBoundingClientRect();
     const chooser = drag.pickerEl.getBoundingClientRect();
     check(
-      card.bottom <= chooser.top || card.top >= chooser.bottom ||
-        card.right <= chooser.left || card.left >= chooser.right,
+      card.bottom <= chooser.top ||
+        card.top >= chooser.bottom ||
+        card.right <= chooser.left ||
+        card.left >= chooser.right,
       "Chooser does not cover the Esc hint",
     );
     document.dispatchEvent(
@@ -152,7 +156,7 @@
         drag.cancelZone.classList.contains("is-active") &&
         !drag.hit.target &&
         drag.line.hidden &&
-        drag.guide.hidden &&
+        !document.querySelector(".qt-parent-guide") &&
         !drag.picker,
       "Cancel area takes precedence over drop targets",
     );

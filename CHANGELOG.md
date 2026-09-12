@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Remove the vertical drag guide to avoid covering folder icons and expand/collapse controls. Keep the horizontal insertion line, its hollow starting point, indentation, and folder chooser.
+
 ## 0.4.0
 
 - Show position and parent guides at ambiguous last-child boundaries, including the option to keep the current position.

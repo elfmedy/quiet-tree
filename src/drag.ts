@@ -33,7 +33,6 @@ export class DragController {
   private hit: DragHit = emptyHit;
   private ghost?: HTMLElement;
   private line?: HTMLElement;
-  private guide?: HTMLElement;
   private surface?: HTMLElement;
   private pickerEl?: HTMLElement;
   private cancelZone?: HTMLElement;
@@ -381,10 +380,6 @@ export class DragController {
     this.line = this.dom.createDiv();
     this.line.className = "qt-drop-line";
     this.doc.body.append(this.line);
-    this.guide = this.dom.createDiv();
-    this.guide.className = "qt-parent-guide";
-    this.guide.setAttribute("aria-hidden", "true");
-    this.doc.body.append(this.guide);
     this.pickerEl = this.dom.createDiv();
     this.pickerEl.className = "qt-picker";
     this.pickerEl.hidden = true;
@@ -618,7 +613,6 @@ export class DragController {
       target.kind === "inside" ||
       lineY < bounds.top ||
       lineY > bounds.bottom;
-    this.guide!.hidden = true;
     if (target) {
       // Derive indentation from the live theme, rather than assuming 18 px steps.
       const parent = rows.find((row) => row.id === target.parentId);
@@ -637,24 +631,6 @@ export class DragController {
       );
       this.line!.style.transform = `translate3d(${left}px,${lineY}px,0)`;
       this.line!.style.width = `${Math.max(20, bounds.right - left - 12)}px`;
-      if (!this.line!.hidden) {
-        const top = Math.max(
-          bounds.top,
-          parent?.rect.bottom ??
-            rows.find((row) => row.rect.bottom > bounds.top)?.rect.top ??
-            bounds.top,
-        );
-        const descendants = target.parentId
-          ? rows.filter((row) => row.id.startsWith(target.parentId! + "/"))
-          : rows;
-        const bottom = Math.min(bounds.bottom, descendants.at(-1)?.rect.bottom ?? lineY);
-        this.guide!.hidden = top >= bottom;
-        Object.assign(this.guide!.style, {
-          left: `${left}px`,
-          top: `${top}px`,
-          height: `${Math.max(0, bottom - top)}px`,
-        });
-      }
       if (target.kind === "inside") {
         this.activeFolder = rows.find((row) => row.id === target.parentId)?.el;
         this.activeFolder?.classList.add("qt-inside");
@@ -792,8 +768,6 @@ export class DragController {
     this.root.classList.remove("qt-dragging");
     this.surface?.remove();
     this.surface = undefined;
-    this.guide?.remove();
-    this.guide = undefined;
     this.cancelZone?.remove();
     this.cancelZone = undefined;
     this.cancelHovered = false;

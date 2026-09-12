@@ -1,4 +1,12 @@
-# 0.4.0 validation
+# Validation
+
+## Unreleased: remove the vertical drag guide
+
+Removed the vertical overlay and its drawing/cleanup code and CSS. The horizontal insertion line, hollow starting point, theme-derived indentation, and folder chooser remain. Updated the documentation preview to show the current interaction.
+
+Typecheck, lint, and all 45 unit tests pass. The Sandbox native drag suite passes 18 checks covering mouse and touch, including last-child no-op feedback, inner/outer destination changes without a vertical overlay, cancellation, and unchanged saved ordering after cancellation. The native preview was visually checked; no runtime errors were captured. Only Sandbox received the test build. The plugin version remains 0.4.0; this change does not create a tag or release.
+
+## 0.4.0
 
 ## Presentation and settings polish
 

@@ -50,15 +50,6 @@
   z-index: 9998;
   background: transparent;
 }
-.qt-parent-guide {
-  position: fixed;
-  width: 2px;
-  z-index: 9998;
-  pointer-events: none;
-  background: var(--interactive-accent);
-  opacity: 1;
-}
-.qt-parent-guide[hidden],
 .qt-ghost-label[hidden] {
   display: none;
 }
