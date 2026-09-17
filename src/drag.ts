@@ -19,7 +19,8 @@ type Press = {
   active: boolean;
   pointer: number;
 };
-type Measured = { id: string; index: number; el: HTMLElement; rect: DOMRect };
+type RowRect = Pick<DOMRect, "top" | "bottom" | "left" | "right" | "width" | "height">;
+type Measured = { id: string; index: number; el: HTMLElement; rect: RowRect };
 const ROW = 28;
 export class DragController {
   private doc: Document;
@@ -48,6 +49,22 @@ export class DragController {
   private suppressClickUntil = 0;
   private activeFolder?: HTMLElement;
   private destroyed = false;
+  private failed = false;
+  private resizeObserver: ResizeObserver;
+  private themeObserver: MutationObserver;
+  private observedRows = new Set<Element>();
+  private pendingDecorations = new Set<HTMLElement>();
+  private measuredRows: Measured[] | null = null;
+  private measuredOrigin = {
+    top: 0,
+    left: 0,
+    scrollTop: 0,
+    scrollLeft: 0,
+    width: 0,
+  };
+  private needsResolve = true;
+  private snapshotDirty = false;
+  private lastBounds = "";
   constructor(
     private plugin: QuietTreePlugin,
     private view: NativeExplorer,
@@ -55,6 +72,9 @@ export class DragController {
     this.root = view.navFileContainerEl;
     this.doc = this.root.ownerDocument;
     this.win = this.doc.defaultView!;
+    const realm = this.win as Window & typeof window;
+    this.resizeObserver = new realm.ResizeObserver(() => this.invalidateGeometry());
+    this.themeObserver = new realm.MutationObserver(() => this.invalidateGeometry());
     // Obsidian installs these global helpers separately in each document's window.
     this.dom = this.win as Window & typeof this.dom;
     this.root.classList.add("qt-explorer");
@@ -187,18 +207,101 @@ export class DragController {
       () => {
         if (this.press && !this.press.active) this.cancel();
         this.picker = null;
+        this.needsResolve = true;
       },
       { passive: true },
     );
-    this.observer = new MutationObserver(() => {
-      if (!this.decorateFrame)
+    this.observer = new realm.MutationObserver((records) => {
+      let changed = false;
+      let structureChanged = false;
+      for (const record of records) {
+        const target = record.target as HTMLElement;
+        if (record.type === "attributes") {
+          // Our drag highlight must not invalidate its own geometry every frame.
+          if (record.attributeName === "class") {
+            const nativeClasses = (value: string) =>
+              value
+                .split(/\s+/)
+                .filter((name) => name && !name.startsWith("qt-"))
+                .join(" ");
+            if (
+              nativeClasses(record.oldValue ?? "") ===
+              nativeClasses(target.getAttribute("class") ?? "")
+            )
+              continue;
+            if (
+              /(^|\s)is-collapsed(\s|$)/.test(record.oldValue ?? "") !==
+              target.classList.contains("is-collapsed")
+            )
+              structureChanged = true;
+          }
+          if (target.closest?.(".qt-handle,.qt-hold-progress")) continue;
+          changed = true;
+          if (record.attributeName === "data-path") {
+            this.pendingDecorations.add(target);
+            structureChanged = true;
+          }
+        } else {
+          for (const node of [...record.addedNodes, ...record.removedNodes]) {
+            if (node.nodeType !== 1) {
+              changed = true;
+              continue;
+            }
+            const el = node as HTMLElement;
+            if (el.matches(".qt-handle,.qt-hold-progress")) continue;
+            changed = true;
+            if (this.root.contains(el)) this.pendingDecorations.add(el);
+          }
+        }
+      }
+      if (!changed) return;
+      this.invalidateGeometry();
+      // Virtualized row mounting changes geometry, not the logical tree.
+      this.snapshotDirty ||= structureChanged;
+      if (this.pendingDecorations.size && !this.decorateFrame)
         this.decorateFrame = this.win.requestAnimationFrame(() => {
           this.decorateFrame = 0;
-          this.decorate();
+          const pending = [...this.pendingDecorations];
+          this.pendingDecorations.clear();
+          const ancestors = new Set(pending);
+          for (const el of pending) {
+            if (!this.root.contains(el)) continue;
+            let parent = el.parentElement;
+            let covered = false;
+            while (parent && parent !== this.root) {
+              if (ancestors.has(parent)) {
+                covered = true;
+                break;
+              }
+              parent = parent.parentElement;
+            }
+            if (covered) continue;
+            this.decorate(el);
+          }
         });
     });
-    this.observer.observe(this.root, { childList: true, subtree: true });
-    this.decorate();
+    try {
+      this.observer.observe(this.root, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeOldValue: true,
+        attributeFilter: ["data-path", "class", "style"],
+      });
+      this.decorate();
+    } catch (error) {
+      this.destroy();
+      throw error;
+    }
+  }
+  private invalidateGeometry() {
+    this.measuredRows = null;
+    this.needsResolve = true;
+  }
+  private fault(error: unknown) {
+    this.cancel();
+    if (!this.failed) this.plugin.report(error, "compatibilityError");
+    this.failed = true;
   }
   private listen(
     target: EventTarget,
@@ -206,12 +309,21 @@ export class DragController {
     fn: EventListener,
     options?: AddEventListenerOptions,
   ) {
-    target.addEventListener(type, fn, options);
-    this.disposers.push(() => target.removeEventListener(type, fn, options));
+    const guarded: EventListener = (event) => {
+      try {
+        fn(event);
+      } catch (error) {
+        this.fault(error);
+      }
+    };
+    target.addEventListener(type, guarded, options);
+    this.disposers.push(() => target.removeEventListener(type, guarded, options));
   }
-  decorate() {
+  decorate(scope: HTMLElement = this.root) {
     this.root.dataset.qtTrigger = this.plugin.settings.trigger;
-    for (const el of this.root.querySelectorAll<HTMLElement>(".tree-item-self[data-path]")) {
+    const selector = ".tree-item-self[data-path]";
+    const rows = scope.matches(selector) ? [scope] : scope.querySelectorAll<HTMLElement>(selector);
+    for (const el of rows) {
       const path = el.dataset.path!;
       const allowed =
         !this.view.searchQuery &&
@@ -235,6 +347,7 @@ export class DragController {
     }
   }
   private eligible(target: EventTarget | null): HTMLElement | null {
+    if (this.failed || this.destroyed) return null;
     const element = target as Element | null;
     if (
       !element?.closest ||
@@ -294,14 +407,29 @@ export class DragController {
     };
     const delay = input === "touch" ? this.plugin.settings.delay : this.plugin.settings.mouseDelay;
     this.timer = this.win.setTimeout(() => {
-      if (this.press && (input === "touch" || Math.hypot(this.press.x - x, this.press.y - y) >= 4))
-        this.activate();
+      try {
+        if (
+          this.press &&
+          (input === "touch" || Math.hypot(this.press.x - x, this.press.y - y) >= 4)
+        )
+          this.activate();
+      } catch (error) {
+        this.fault(error);
+      }
     }, delay);
   }
   private activate() {
     const p = this.press;
     if (!p || p.active || !p.el.isConnected) return;
-    this.data = snapshot(this.plugin.app, this.view);
+    const data = snapshot(this.plugin.app, this.view);
+    if (this.press !== p) return;
+    this.data = data;
+    this.snapshotDirty = false;
+    this.invalidateGeometry();
+    this.themeObserver.observe(this.doc.body, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
     if (!this.data.tree.nodes[p.id]) {
       this.cancel();
       return;
@@ -311,10 +439,16 @@ export class DragController {
     this.root.classList.add("qt-dragging");
     // A temporary hit surface prevents native hover/title tooltips without
     // modifying global tooltip behavior or another plugin's event handlers.
-    this.view.onFilePointerout?.(
-      new PointerEvent("pointerout", { relatedTarget: this.root }),
-      p.el,
-    );
+    try {
+      this.view.onFilePointerout?.(
+        new (this.win as Window & typeof window).PointerEvent("pointerout", {
+          relatedTarget: this.root,
+        }),
+        p.el,
+      );
+    } catch (error) {
+      console.warn("[Quiet Tree] Tooltip cleanup unavailable", error);
+    }
     this.surface = this.dom.createDiv();
     this.surface.className = "qt-drag-surface";
     this.surface.setAttribute("aria-hidden", "true");
@@ -391,6 +525,7 @@ export class DragController {
     if (!p) return;
     p.x = x;
     p.y = y;
+    this.needsResolve = true;
     const distance = Math.hypot(x - p.startX, y - p.startY);
     if (!p.active) {
       if (p.input === "touch" && distance > 8) {
@@ -409,19 +544,80 @@ export class DragController {
       event.stopImmediatePropagation();
     }
   }
-  private measured(): Measured[] {
+  private measured(bounds: DOMRect = this.root.getBoundingClientRect()): Measured[] {
     if (!this.data) return [];
-    const indexes = new Map(this.data.rows.map((row, index) => [row.id, index]));
-    return Array.from(this.root.querySelectorAll<HTMLElement>(".tree-item-self[data-path]"))
-      .flatMap((el) => {
-        const id = el.dataset.path!,
-          index = indexes.get(id),
-          rect = el.getBoundingClientRect();
-        return index !== undefined && rect.height > 0 ? [{ id, index, el, rect }] : [];
-      })
-      .sort((a, b) => a.index - b.index);
+    if (this.measuredRows && this.measuredOrigin.width === bounds.width) {
+      const dx =
+        bounds.left -
+        this.measuredOrigin.left -
+        (this.root.scrollLeft - this.measuredOrigin.scrollLeft);
+      const dy =
+        bounds.top -
+        this.measuredOrigin.top -
+        (this.root.scrollTop - this.measuredOrigin.scrollTop);
+      if (!dx && !dy) return this.measuredRows;
+      this.measuredRows = this.measuredRows.map((row) => ({
+        ...row,
+        rect: {
+          ...row.rect,
+          top: row.rect.top + dy,
+          bottom: row.rect.bottom + dy,
+          left: row.rect.left + dx,
+          right: row.rect.right + dx,
+        },
+      }));
+    } else {
+      const indexes = new Map(this.data.rows.map((row, index) => [row.id, index]));
+      this.measuredRows = Array.from(
+        this.root.querySelectorAll<HTMLElement>(".tree-item-self[data-path]"),
+      )
+        .flatMap((el) => {
+          const id = el.dataset.path!,
+            index = indexes.get(id),
+            rect = index === undefined ? null : el.getBoundingClientRect();
+          return index !== undefined && rect && rect.height > 0
+            ? [
+                {
+                  id,
+                  index,
+                  el,
+                  rect: {
+                    top: rect.top,
+                    bottom: rect.bottom,
+                    left: rect.left,
+                    right: rect.right,
+                    width: rect.width,
+                    height: rect.height,
+                  },
+                },
+              ]
+            : [];
+        })
+        .sort((a, b) => a.index - b.index);
+      const next = new Set<Element>([this.root, ...this.measuredRows.map((row) => row.el)]);
+      for (const el of this.observedRows) if (!next.has(el)) this.resizeObserver.unobserve(el);
+      for (const el of next) if (!this.observedRows.has(el)) this.resizeObserver.observe(el);
+      this.observedRows = next;
+    }
+    this.measuredOrigin = {
+      top: bounds.top,
+      left: bounds.left,
+      width: bounds.width,
+      scrollTop: this.root.scrollTop,
+      scrollLeft: this.root.scrollLeft,
+    };
+    return this.measuredRows;
   }
   private resolve() {
+    if (this.snapshotDirty && this.press?.active) {
+      const press = this.press;
+      const data = snapshot(this.plugin.app, this.view);
+      if (this.press !== press) return;
+      this.data = data;
+      this.snapshotDirty = false;
+      this.invalidateGeometry();
+    }
+
     const p = this.press,
       data = this.data;
     if (!p?.active || !data) return;
@@ -432,7 +628,7 @@ export class DragController {
       width: `${bounds.width}px`,
       height: `${bounds.height}px`,
     });
-    const measured = this.measured();
+    const measured = this.measured(bounds);
     this.cancelHovered =
       !!this.cancelZone && contains(this.cancelZone.getBoundingClientRect(), p.x, p.y);
     this.cancelZone?.classList.toggle("is-active", this.cancelHovered);
@@ -547,15 +743,20 @@ export class DragController {
     }
     if (folder && Date.now() - this.hoverSince > 650) {
       const item = this.view.fileItems[folder];
+      this.hoverSince = Infinity;
       if (item?.collapsed && item.setCollapsed) {
-        this.hoverSince = Infinity;
-        void item.setCollapsed(false).then(() => {
-          if (this.press === p) {
-            this.data = snapshot(this.plugin.app, this.view);
-            this.hit = emptyHit;
-            this.picker = null;
-          }
-        });
+        void Promise.resolve(item.setCollapsed(false))
+          .then(() => {
+            if (this.press === p) {
+              const data = snapshot(this.plugin.app, this.view);
+              if (this.press !== p) return;
+              this.data = data;
+              this.invalidateGeometry();
+              this.hit = emptyHit;
+              this.picker = null;
+            }
+          })
+          .catch((error) => this.fault(error));
       }
     }
     this.paint(measured);
@@ -603,9 +804,14 @@ export class DragController {
     const label = this.ghost!.querySelector(".qt-ghost-label")!;
     if (label.textContent !== text) label.textContent = text;
     (label as HTMLElement).hidden = !text;
-    this.activeFolder?.classList.remove("qt-inside");
-    this.activeFolder = undefined;
     const target = this.hit.target;
+    const activeFolder =
+      target?.kind === "inside" ? rows.find((row) => row.id === target.parentId)?.el : undefined;
+    if (activeFolder !== this.activeFolder) {
+      this.activeFolder?.classList.remove("qt-inside");
+      this.activeFolder = activeFolder;
+      this.activeFolder?.classList.add("qt-inside");
+    }
     const lineY = this.gapY(rows);
     this.line!.hidden =
       !target ||
@@ -631,10 +837,6 @@ export class DragController {
       );
       this.line!.style.transform = `translate3d(${left}px,${lineY}px,0)`;
       this.line!.style.width = `${Math.max(20, bounds.right - left - 12)}px`;
-      if (target.kind === "inside") {
-        this.activeFolder = rows.find((row) => row.id === target.parentId)?.el;
-        this.activeFolder?.classList.add("qt-inside");
-      }
     }
     this.pickerEl!.hidden = !this.picker;
     if (this.picker) {
@@ -689,31 +891,47 @@ export class DragController {
   }
   private tick = () => {
     if (!this.press?.active) return;
-    this.resolve();
-    const rect = this.root.getBoundingClientRect(),
-      p = this.press;
-    if (
-      !this.picker &&
-      !this.cancelHovered &&
-      p.x >= rect.left &&
-      p.x <= rect.right &&
-      p.y >= rect.top &&
-      p.y <= rect.bottom
-    ) {
-      const edge = 40;
-      const bottom = Math.min(
-        rect.bottom,
-        this.cancelZone ? this.cancelZone.getBoundingClientRect().top - 12 : rect.bottom,
-      );
-      const delta =
-        p.y < rect.top + edge
-          ? -Math.min(9, (rect.top + edge - p.y) / 4)
-          : p.y > bottom - edge
-            ? Math.min(9, (p.y - bottom + edge) / 4)
-            : 0;
-      if (delta) this.root.scrollTop += delta;
+    try {
+      const rect = this.root.getBoundingClientRect(),
+        p = this.press;
+      const boundsKey = `${rect.top}:${rect.left}:${rect.width}:${rect.height}:${this.root.scrollTop}:${this.root.scrollLeft}`;
+      if (boundsKey !== this.lastBounds) this.needsResolve = true;
+      this.lastBounds = boundsKey;
+      const now = Date.now();
+      if (
+        this.needsResolve ||
+        (this.pickerKey && !this.picker && now - this.pickerSince >= 240) ||
+        (this.hoverId && now - this.hoverSince > 650)
+      ) {
+        this.needsResolve = false;
+        this.resolve();
+        if (this.press !== p) return;
+      }
+      if (
+        !this.picker &&
+        !this.cancelHovered &&
+        p.x >= rect.left &&
+        p.x <= rect.right &&
+        p.y >= rect.top &&
+        p.y <= rect.bottom
+      ) {
+        const edge = 40;
+        const bottom = Math.min(
+          rect.bottom,
+          this.cancelZone ? this.cancelZone.getBoundingClientRect().top - 12 : rect.bottom,
+        );
+        const delta =
+          p.y < rect.top + edge
+            ? -Math.min(9, (rect.top + edge - p.y) / 4)
+            : p.y > bottom - edge
+              ? Math.min(9, (p.y - bottom + edge) / 4)
+              : 0;
+        if (delta) this.root.scrollTop += delta;
+      }
+      this.frame = this.win.requestAnimationFrame(this.tick);
+    } catch (error) {
+      this.fault(error);
     }
-    this.frame = this.win.requestAnimationFrame(this.tick);
   };
   private end(x: number, y: number, event: Event) {
     const p = this.press;
@@ -723,7 +941,10 @@ export class DragController {
       event.stopImmediatePropagation();
       p.x = x;
       p.y = y;
+      this.snapshotDirty = true;
+      this.invalidateGeometry(); // Recheck live layout before committing a drop.
       this.resolve(); // Commit the release coordinates, not the previous frame.
+      if (this.press !== p) return;
       const target = this.hit.target,
         noOp = this.hit.noOp;
       this.cancel();
@@ -777,6 +998,12 @@ export class DragController {
     this.ghost = this.line = this.pickerEl = undefined;
     this.press = null;
     this.data = null;
+    this.resizeObserver.disconnect();
+    this.themeObserver.disconnect();
+    this.observedRows.clear();
+    this.measuredRows = null;
+    this.snapshotDirty = false;
+    this.lastBounds = "";
     this.hit = emptyHit;
     this.picker = null;
     this.pickerKey = "";

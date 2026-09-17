@@ -7,13 +7,13 @@ import {
   type WorkspaceLeaf,
 } from "obsidian";
 import type { DropTarget } from "../lib/explorer-model";
-import { attachSort, type NativeExplorer } from "./native";
+import { attachSort, compatibleExplorer, sortConflicts, type NativeExplorer } from "./native";
 import { DragController } from "./drag";
 import {
   attachmentExclusion,
   baseName,
   childPath,
-  deleteOrder,
+  deleteOrders,
   excluded,
   renameExclusions,
   renameOrder,
@@ -28,9 +28,21 @@ export default class QuietTreePlugin extends Plugin {
   store!: DataStore;
   declare settings: Settings;
   private settingsTab!: ExplorerSettingsTab;
-  private views = new Map<NativeExplorer, { drag: DragController; restore: () => void }>();
+  private views = new Map<
+    NativeExplorer,
+    { drag: DragController; restore: () => void; root: HTMLElement }
+  >();
   private ownRenames = new Map<string, string>();
   private busy = false;
+  private suspended = false;
+  private conflictKey = "";
+  private refreshTimer = 0;
+  private changeTimer = 0;
+  private changes: (
+    | { kind: "rename"; from: string; to: string }
+    | { kind: "delete"; path: string }
+  )[] = [];
+  private flushing: Promise<void> | null = null;
   private alive = false;
   private loadingLeaves = new WeakSet<WorkspaceLeaf>();
   private warnedViews = new WeakSet<object>();
@@ -110,16 +122,13 @@ export default class QuietTreePlugin extends Plugin {
       this.app.vault.on("rename", (file, oldPath) => {
         this.cancelDrags();
         if (this.ownRenames.get(oldPath) === file.path) return;
-        void this.followRename(oldPath, file.path).catch((error) => this.report(error));
+        this.queueChange({ kind: "rename", from: oldPath, to: file.path });
       }),
     );
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
         this.cancelDrags();
-        void this.store
-          .update((order) => deleteOrder(order, file.path))
-          .then(() => this.refresh())
-          .catch((error) => this.report(error));
+        this.queueChange({ kind: "delete", path: file.path });
       }),
     );
     this.registerEvent(this.app.vault.on("create", () => this.cancelDrags()));
@@ -139,6 +148,9 @@ export default class QuietTreePlugin extends Plugin {
   }
   onunload() {
     this.alive = false;
+    window.clearTimeout(this.refreshTimer);
+    window.clearTimeout(this.changeTimer);
+    void this.flushChanges().catch((error) => this.report(error));
     for (const binding of this.views.values()) {
       binding.drag.destroy();
       binding.restore();
@@ -169,15 +181,50 @@ export default class QuietTreePlugin extends Plugin {
     return this.t(known.includes(key as TextKey) ? (key as TextKey) : fallback);
   }
   async saveSettings(patch: Partial<Settings>) {
+    await this.flushChanges();
     await this.store.saveSettings(patch);
     this.refresh();
   }
-  private async followRename(oldPath: string, newPath: string) {
-    await this.store.update((order, settings) => {
-      settings.excluded = renameExclusions(settings.excluded, oldPath, newPath);
-      return renameOrder(order, oldPath, newPath);
-    });
-    this.refresh();
+  private queueChange(change: (typeof this.changes)[number]) {
+    this.changes.push(change);
+    if (!this.changeTimer)
+      this.changeTimer = window.setTimeout(() => {
+        this.changeTimer = 0;
+        void this.flushChanges().catch((error) => this.report(error));
+      }, 100);
+  }
+  async flushChanges(): Promise<void> {
+    window.clearTimeout(this.changeTimer);
+    this.changeTimer = 0;
+    if (this.flushing) return this.flushing;
+    this.flushing = this.applyChanges();
+    try {
+      await this.flushing;
+    } finally {
+      this.flushing = null;
+    }
+  }
+  private async applyChanges() {
+    while (this.changes.length) {
+      const batch = this.changes.splice(0);
+      await this.store.update((order, settings) => {
+        let deletes: string[] = [];
+        for (const change of batch) {
+          if (change.kind === "delete") {
+            deletes.push(change.path);
+            continue;
+          }
+          if (deletes.length) {
+            order = deleteOrders(order, deletes);
+            deletes = [];
+          }
+          settings.excluded = renameExclusions(settings.excluded, change.from, change.to);
+          order = renameOrder(order, change.from, change.to);
+        }
+        return deletes.length ? deleteOrders(order, deletes) : order;
+      });
+      this.refresh();
+    }
   }
   async onExternalSettingsChange() {
     this.cancelDrags();
@@ -189,13 +236,40 @@ export default class QuietTreePlugin extends Plugin {
   refresh() {
     if (!this.alive) return;
     this.cancelDrags();
-    for (const [view, { drag }] of this.views) {
-      view.requestSort();
-      drag.decorate();
+    if (this.refreshTimer) return;
+    this.refreshTimer = window.setTimeout(() => {
+      this.refreshTimer = 0;
+      if (!this.alive) return;
+      for (const [view, { drag }] of this.views) {
+        try {
+          view.requestSort();
+          drag.decorate();
+        } catch (error) {
+          this.viewError(view, error);
+        }
+      }
+    }, 0);
+  }
+  private viewError(view: object, error: unknown) {
+    console.error("[Quiet Tree] native explorer compatibility", error);
+    this.views.get(view as NativeExplorer)?.drag.cancel();
+    if (!this.warnedViews.has(view)) {
+      this.warnedViews.add(view);
+      new Notice(this.t("compatibilityError"), 7000);
     }
   }
   private syncViews() {
     if (!this.alive || !this.app.workspace.layoutReady) return;
+    const enabled = (
+      this.app as typeof this.app & {
+        plugins?: { enabledPlugins?: Set<string> };
+      }
+    ).plugins?.enabledPlugins;
+    const key = sortConflicts(enabled ?? []).join(", ");
+    this.suspended = !!key;
+    if (key && key !== this.conflictKey)
+      new Notice(this.t("sortConflict").replace("{plugins}", key), 10000);
+    this.conflictKey = key;
     const leaves = this.app.workspace.getLeavesOfType("file-explorer");
     for (const leaf of leaves) {
       // Mobile sidebars are commonly deferred at startup. A placeholder view
@@ -215,38 +289,41 @@ export default class QuietTreePlugin extends Plugin {
       }
     }
     const current = new Set(
-      leaves
+      (this.suspended ? [] : leaves)
         .filter((leaf) => !leaf.isDeferred)
         .map((leaf) => leaf.view as unknown as NativeExplorer),
     );
     for (const [view, binding] of this.views)
-      if (!current.has(view)) {
+      if (!current.has(view) || binding.root !== view.navFileContainerEl) {
         binding.drag.destroy();
         binding.restore();
         this.views.delete(view);
       }
     for (const view of current) {
       if (this.views.has(view)) continue;
-      if (
-        typeof view.getSortedFolderItems !== "function" ||
-        typeof view.requestSort !== "function" ||
-        !view.navFileContainerEl ||
-        !view.fileItems
-      ) {
-        if (!this.warnedViews.has(view)) {
-          this.warnedViews.add(view);
-          new Notice(this.t("unavailable"));
-        }
+      if (!compatibleExplorer(view)) {
+        this.viewError(view, new Error("unavailable"));
         continue;
       }
-      const restore = attachSort(view, this.store);
-      this.views.set(view, { restore, drag: new DragController(this, view) });
+      let restore: (() => void) | undefined;
+      try {
+        restore = attachSort(view, this.store, (error) => this.viewError(view, error));
+        this.views.set(view, {
+          restore,
+          drag: new DragController(this, view),
+          root: view.navFileContainerEl,
+        });
+      } catch (error) {
+        restore?.();
+        this.viewError(view, error);
+      }
     }
   }
   async reload(notify = false) {
     if (!this.alive) return;
     const hadError = !!this.store.error;
     try {
+      await this.flushChanges();
       this.syncViews();
       const changed = await this.store.load();
       if (changed || hadError) {
@@ -261,6 +338,7 @@ export default class QuietTreePlugin extends Plugin {
   }
   async resetFolder(path: string) {
     try {
+      await this.flushChanges();
       await this.store.update((order) => {
         delete order[path];
         return order;
@@ -273,7 +351,15 @@ export default class QuietTreePlugin extends Plugin {
   }
   /** Filesystem moves go through FileManager so Obsidian can update links. */
   async move(view: NativeExplorer, path: string, target: DropTarget): Promise<void> {
-    if (this.busy) return;
+    this.syncViews();
+    if (this.busy || this.suspended || !this.alive) return;
+    try {
+      await this.flushChanges();
+    } catch (error) {
+      this.report(error);
+      return;
+    }
+    if (this.busy || this.suspended || !this.alive) return;
     this.busy = true;
     let movedFile: TAbstractFile | null = null;
     let originalPath = "";

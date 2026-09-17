@@ -123,10 +123,22 @@ export function renameOrder(order: Order, oldPath: string, newPath: string): Ord
   return next;
 }
 export function deleteOrder(order: Order, path: string): Order {
+  return deleteOrders(order, [path]);
+}
+export function deleteOrders(order: Order, paths: string[]): Order {
+  const deleted = new Set(paths);
+  const removed = (path: string) => {
+    for (;;) {
+      if (deleted.has(path)) return true;
+      const slash = path.lastIndexOf("/");
+      if (slash < 0) return false;
+      path = path.slice(0, slash);
+    }
+  };
   const next = Object.create(null) as Order;
   for (const [key, names] of Object.entries(order)) {
-    if (key === path || key.startsWith(path + "/")) continue;
-    next[key] = key === parentPath(path) ? names.filter((n) => n !== baseName(path)) : [...names];
+    if (removed(key)) continue;
+    next[key] = names.filter((name) => !deleted.has(childPath(key, name)));
   }
   return next;
 }
