@@ -4,7 +4,6 @@
 
 - Remove sorting-plugin ID detection, conflict notices and automatic suspension. Stale IDs left by uninstalled plugins no longer disable Quiet Tree.
 - Keep native API capability checks, error fallbacks, deferred mobile loading and performance improvements.
-- Document the authoritative source repository, data/interaction decisions and release workflow in AGENT.MD, with an AGENTS.md entry point.
 
 ## 0.4.1
 
