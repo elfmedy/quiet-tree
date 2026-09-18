@@ -1,7 +1,7 @@
 {
   "id": "quiet-tree",
   "name": "Quiet Tree",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "minAppVersion": "1.8.7",
   "description": "Drag and drop files and folders into your own order in the native file explorer, on desktop and mobile.",
   "author": "elfmedy",

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Publish from the cleaned source tree, excluding local-only collaboration documents.
+- Retain the 0.4.2 fix removing sorting-plugin conflict detection and suspension; no runtime or data-format changes.
+
 ## 0.4.2
 
 - Remove sorting-plugin ID detection, conflict notices and automatic suspension. Stale IDs left by uninstalled plugins no longer disable Quiet Tree.
