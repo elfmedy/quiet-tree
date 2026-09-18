@@ -7,7 +7,7 @@ import {
   type WorkspaceLeaf,
 } from "obsidian";
 import type { DropTarget } from "../lib/explorer-model";
-import { attachSort, compatibleExplorer, sortConflicts, type NativeExplorer } from "./native";
+import { attachSort, compatibleExplorer, type NativeExplorer } from "./native";
 import { DragController } from "./drag";
 import {
   attachmentExclusion,
@@ -34,8 +34,6 @@ export default class QuietTreePlugin extends Plugin {
   >();
   private ownRenames = new Map<string, string>();
   private busy = false;
-  private suspended = false;
-  private conflictKey = "";
   private refreshTimer = 0;
   private changeTimer = 0;
   private changes: (
@@ -260,16 +258,6 @@ export default class QuietTreePlugin extends Plugin {
   }
   private syncViews() {
     if (!this.alive || !this.app.workspace.layoutReady) return;
-    const enabled = (
-      this.app as typeof this.app & {
-        plugins?: { enabledPlugins?: Set<string> };
-      }
-    ).plugins?.enabledPlugins;
-    const key = sortConflicts(enabled ?? []).join(", ");
-    this.suspended = !!key;
-    if (key && key !== this.conflictKey)
-      new Notice(this.t("sortConflict").replace("{plugins}", key), 10000);
-    this.conflictKey = key;
     const leaves = this.app.workspace.getLeavesOfType("file-explorer");
     for (const leaf of leaves) {
       // Mobile sidebars are commonly deferred at startup. A placeholder view
@@ -289,7 +277,7 @@ export default class QuietTreePlugin extends Plugin {
       }
     }
     const current = new Set(
-      (this.suspended ? [] : leaves)
+      leaves
         .filter((leaf) => !leaf.isDeferred)
         .map((leaf) => leaf.view as unknown as NativeExplorer),
     );
@@ -352,14 +340,14 @@ export default class QuietTreePlugin extends Plugin {
   /** Filesystem moves go through FileManager so Obsidian can update links. */
   async move(view: NativeExplorer, path: string, target: DropTarget): Promise<void> {
     this.syncViews();
-    if (this.busy || this.suspended || !this.alive) return;
+    if (this.busy || !this.alive) return;
     try {
       await this.flushChanges();
     } catch (error) {
       this.report(error);
       return;
     }
-    if (this.busy || this.suspended || !this.alive) return;
+    if (this.busy || !this.alive) return;
     this.busy = true;
     let movedFile: TAbstractFile | null = null;
     let originalPath = "";

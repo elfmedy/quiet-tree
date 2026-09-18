@@ -1,8 +1,6 @@
 export const en = {
   compatibilityError:
     "Quiet Tree paused this explorer interaction because a native interface failed. Reload the plugin after updating Obsidian.",
-  sortConflict:
-    "Quiet Tree sorting is paused while these sorting plugins are enabled: {plugins}. Disable the conflicting sorter to resume.",
   lifted: "Lifted",
   chooseHint: "Move here, then release",
   positionBetween: "Between {previous} and {next}",
@@ -155,7 +153,6 @@ const zh: Record<TextKey, string> = {
   dataChanged: "恢复期间数据已发生变化，请先重新加载插件数据再重试；没有重置任何数据。",
   compatibilityError:
     "原生接口异常，Quiet Tree 已暂停当前列表的拖动。更新 Obsidian 后可重新加载插件。",
-  sortConflict: "检测到排序插件冲突，Quiet Tree 已暂停排序：{plugins}。停用冲突插件后自动恢复。",
   unavailable: "当前 Obsidian 的原生文件列表接口不兼容，尚未接入排序。",
   locked: "此目录已排除，不参与自定义排序。",
   moving: "正在拖拽",

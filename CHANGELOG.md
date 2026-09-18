@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.4.2
+
+- Remove sorting-plugin ID detection, conflict notices and automatic suspension. Stale IDs left by uninstalled plugins no longer disable Quiet Tree.
+- Keep native API capability checks, error fallbacks, deferred mobile loading and performance improvements.
+- Document the authoritative source repository, data/interaction decisions and release workflow in AGENT.MD, with an AGENTS.md entry point.
+
+## 0.4.1
+
+- Cache drag geometry, decorate changed rows incrementally and batch rename/delete events.
+- Add native interface safeguards and window-local observers. The plugin-ID conflict suspension introduced here is removed in 0.4.2.
 
 - Remove the vertical drag guide to avoid covering folder icons and expand/collapse controls. Keep the horizontal insertion line, its hollow starting point, indentation, and folder chooser.
 

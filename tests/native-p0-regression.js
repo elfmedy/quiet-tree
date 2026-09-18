@@ -14,21 +14,28 @@
   const before = JSON.stringify(p.store.order);
   const enabled = app.plugins.enabledPlugins;
   check(
-    p.manifest.version === "0.4.1" && p.views.has(view),
-    "0.4.1 binds native explorer after legacy migration",
+    p.manifest.version === "0.4.2" && p.views.has(view),
+    "0.4.2 binds native explorer after legacy migration",
   );
   try {
     p.settings.trigger = "handle";
-    if (!enabled.has("custom-sort")) {
-      enabled.add("custom-sort");
-      try {
-        p.syncViews();
-        check(p.suspended && p.views.size === 0, "conflict suspends bindings");
-      } finally {
-        enabled.delete("custom-sort");
-        p.syncViews();
-      }
-      check(!p.suspended && p.views.has(view), "disabling conflict restores bindings");
+    const staleIds = ["manual-sorting", "flexplorer", "custom-sort", "file-explorer-plus"];
+    const added = staleIds.filter((id) => !enabled.has(id));
+    const binding = p.views.get(view);
+    const sorted = view.getSortedFolderItems(app.vault.getRoot()).map((item) => item.file.path);
+    try {
+      for (const id of added) enabled.add(id);
+      p.syncViews();
+      check(p.views.get(view) === binding, "stale plugin IDs do not detach the explorer");
+      check(
+        JSON.stringify(
+          view.getSortedFolderItems(app.vault.getRoot()).map((item) => item.file.path),
+        ) === JSON.stringify(sorted),
+        "stale plugin IDs preserve custom sorting",
+      );
+    } finally {
+      for (const id of added) enabled.delete(id);
+      p.syncViews();
     }
     // Count actual layout reads, rather than asserting wall-clock timings.
     panel = document.createElement("div");

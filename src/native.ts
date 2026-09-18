@@ -42,18 +42,6 @@ export function compatibleExplorer(value: unknown): value is NativeExplorer {
   );
 }
 
-const sortingPlugins: Record<string, string> = {
-  flexplorer: "Flexplorer",
-  "manual-sorting": "Manual Sorting",
-  "custom-sort": "Custom File Explorer sorting",
-  "file-explorer-plus": "File Explorer++",
-};
-export function sortConflicts(enabled: Iterable<string>): string[] {
-  return Array.from(enabled)
-    .filter((id) => Object.hasOwn(sortingPlugins, id))
-    .sort()
-    .map((id) => sortingPlugins[id]);
-}
 export function snapshot(app: App, view: NativeExplorer): Snapshot {
   const tree: FileTree = {
     nodes: Object.create(null) as FileTree["nodes"],

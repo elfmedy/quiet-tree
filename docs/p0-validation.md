@@ -1,4 +1,13 @@
-# 0.4.1 validation
+# P0 validation
+
+## 0.4.2 correction
+
+- Lint, type checking, build and all 58 automated tests passed. The prior conflict-detection test is replaced by a regression proving stale plugin IDs neither detach the explorer nor block normal move validation.
+- All 9 native P0 checks passed in Obsidian Sandbox 1.13.7, including retained binding and custom order with stale IDs for the four previously detected sorters. The 300-row warm cache still made zero extra row layout reads across 60 measurements.
+- All 18 drag-feedback checks passed with a simulated stale `manual-sorting` ID, including actual sorting saves, mouse cancellation and synthetic touch cancellation. The temporary fixture was removed and existing order preserved.
+- These are desktop host checks; the reported iPhone scenario was simulated using stale plugin IDs, not tested on the physical phone. No production vault settings or plugin lists were changed.
+
+## 0.4.1 historical results
 
 Validated on Windows with Obsidian 1.13.7 in the isolated Obsidian Sandbox.
 

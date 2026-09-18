@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TFolder } from "obsidian";
-import { attachSort, compatibleExplorer, sortConflicts } from "../src/native.ts";
+import { attachSort, compatibleExplorer } from "../src/native.ts";
 import QuietTreePlugin from "../src/main.ts";
 import { DataStore } from "../src/data.ts";
 
@@ -116,12 +116,64 @@ test("attachment failure restores original method", () => {
   assert.equal(Object.hasOwn(view, "getSortedFolderItems"), false);
 });
 
-test("conflicts are explicit sorting plugins, not unrelated file tree decoration", () => {
-  assert.deepEqual(sortConflicts(["iconize", "folder-notes", "flexplorer", "custom-sort"]), [
-    "Custom File Explorer sorting",
-    "Flexplorer",
-  ]);
-  assert.deepEqual(sortConflicts(["file-tree-alternative", "toString"]), []);
+test("stale sorting plugin IDs neither detach the explorer nor block moves", async () => {
+  const { plugin } = await pluginFixture({ "/": ["A.md"] });
+  const { view } = explorer();
+  let destroyed = 0,
+    restored = 0;
+  const binding = {
+    root: view.navFileContainerEl,
+    drag: {
+      destroy() {
+        destroyed++;
+      },
+    },
+    restore() {
+      restored++;
+    },
+  };
+  plugin.alive = true;
+  plugin.views.set(view, binding);
+  let vaultReads = 0;
+  plugin.app = {
+    plugins: {
+      enabledPlugins: new Set([
+        "manual-sorting",
+        "flexplorer",
+        "custom-sort",
+        "file-explorer-plus",
+      ]),
+      plugins: {},
+    },
+    workspace: {
+      layoutReady: true,
+      getLeavesOfType() {
+        return [{ isDeferred: false, view }];
+      },
+    },
+    vault: {
+      getAbstractFileByPath() {
+        vaultReads++;
+        return null;
+      },
+    },
+  };
+  plugin.syncViews();
+  assert.equal(plugin.views.get(view), binding);
+  assert.equal(destroyed, 0);
+  assert.equal(restored, 0);
+  const errors = [];
+  plugin.report = (error) => errors.push(error.message);
+  plugin.refresh = () => {};
+  // A missing source must reach normal move validation, not a plugin-ID gate.
+  await plugin.move(view, "missing.md", {
+    parentId: null,
+    beforeId: null,
+    kind: "insert",
+    depth: 0,
+  });
+  assert.ok(vaultReads > 0);
+  assert.deepEqual(errors, ["changed"]);
 });
 
 async function pluginFixture(initial) {
