@@ -14,8 +14,8 @@
   const before = JSON.stringify(p.store.order);
   const enabled = app.plugins.enabledPlugins;
   check(
-    p.manifest.version === "0.4.2" && p.views.has(view),
-    "0.4.2 binds native explorer after legacy migration",
+    p.manifest.id === "quiet-tree" && p.views.has(view),
+    "Current Quiet Tree build binds the native explorer",
   );
   try {
     p.settings.trigger = "handle";

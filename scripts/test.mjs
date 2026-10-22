@@ -8,6 +8,7 @@ await build({
     "tests/explorer.test.mjs",
     "tests/compatibility.test.mjs",
     "tests/performance.test.mjs",
+    "tests/stable-order.test.mjs",
   ],
   alias: { obsidian: "./tests/obsidian-stub.mjs" },
   bundle: true,
@@ -24,6 +25,7 @@ const result = spawnSync(
     "test-results/explorer.test.mjs",
     "test-results/compatibility.test.mjs",
     "test-results/performance.test.mjs",
+    "test-results/stable-order.test.mjs",
   ],
   { stdio: "inherit" },
 );

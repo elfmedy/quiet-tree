@@ -2,6 +2,7 @@ import { TFolder, type App, type TAbstractFile } from "obsidian";
 import { flattenTree, type FileTree, type TreeRow } from "../lib/explorer-model";
 import type { DataStore } from "./data";
 import { excluded, sortItems } from "./order";
+import type { StableOrder } from "./stable-order";
 
 export interface NativeItem {
   file: TAbstractFile;
@@ -74,6 +75,7 @@ export function attachSort(
   view: NativeExplorer,
   store: DataStore,
   onError: (error: unknown) => void = console.error,
+  stable?: StableOrder,
 ): () => void {
   if (!compatibleExplorer(view)) throw new Error("unavailable");
   const original = view.getSortedFolderItems;
@@ -100,8 +102,23 @@ export function attachSort(
       return folder.children.map((file) => this.fileItems[file.path]).filter(Boolean);
     }
     try {
-      if (!active || excluded(folder.path, store.rules)) return items;
-      const result = sortItems(items, store.order[folder.path], (item) => item.file.name);
+      if (!active || excluded(folder.path, stable?.rules(store.rules) ?? store.rules)) return items;
+      const names =
+        stable?.names(folder.path, store.order[folder.path]) ?? store.order[folder.path];
+      const result = sortItems(items, names, (item) => item.file.name);
+      if (stable) {
+        const paths = new Set(result.map((item) => item.file.path));
+        // Native explorers omit unsupported/hidden entries even without a search.
+        // Compare with native items, not every filesystem child; never fabricate rows.
+        const visible = folder.children.filter((file) => Object.hasOwn(this.fileItems, file.path));
+        const complete =
+          paths.size === visible.length && visible.every((file) => paths.has(file.path));
+        stable.observe(
+          folder.path,
+          result.map((item) => item.file.name),
+          complete,
+        );
+      }
       failed.delete(folder.path);
       return result;
     } catch (error) {

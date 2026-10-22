@@ -19,6 +19,7 @@
     order[base + "/A"] = ["B.md", "C.md"];
     return order;
   });
+  await p.flushChanges(); // Finish automatic ordering of the newly created fixture.
   p.refresh();
   app.setting.close();
   const leaf = app.workspace.getLeavesOfType("file-explorer")[0];

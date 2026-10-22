@@ -4,6 +4,7 @@ import { TFolder } from "obsidian";
 import { attachSort, compatibleExplorer } from "../src/native.ts";
 import QuietTreePlugin from "../src/main.ts";
 import { DataStore } from "../src/data.ts";
+import { StableOrder } from "../src/stable-order.ts";
 
 globalThis.window = globalThis;
 function explorer() {
@@ -62,6 +63,23 @@ test("normal sorting preserves file extensions, unknown items and inherited meth
   assert.equal(Object.hasOwn(view, "getSortedFolderItems"), false);
   assert.equal(view.getSortedFolderItems, prototype.getSortedFolderItems);
   assert.equal(view.getSortedFolderItems(folder), items);
+});
+
+test("native baselines exclude unsupported children and reject incomplete search projections", () => {
+  const { view, folder, items } = explorer();
+  folder.children.push({ name: "unsupported.bin", path: "unsupported.bin" });
+  const stable = new StableOrder();
+  const restore = attachSort(view, { rules: [], order: {} }, () => {}, stable);
+  view.getSortedFolderItems(folder);
+  assert.equal(stable.has("/"), true);
+  stable.observe("/", ["B.canvas"], false);
+  stable.stage({ kind: "rename", from: "A.md", to: "Z.md" }, {}, []);
+  items[0].file.name = "Z.md";
+  assert.deepEqual(
+    view.getSortedFolderItems(folder).map((item) => item.file.name),
+    ["Z.md", "B.canvas", "C.base"],
+  );
+  restore();
 });
 
 test("bad custom order falls back to native array, without affecting other folders or storage", () => {
@@ -254,4 +272,54 @@ test("batched event save preserves external edits and atomic settings on failure
   plugin.changes.push({ kind: "rename", from: "Images", to: "Assets" });
   await assert.rejects(plugin.flushChanges(), /disk full/);
   assert.deepEqual(plugin.settings.excluded, ["Images"]);
+});
+
+test("unsaved creates and renames remain visible after failure and can be retried once", async () => {
+  const { plugin, content, io, stats } = await pluginFixture({});
+  plugin.stable.observe("A", ["B.md", "D.md"], true);
+  plugin.queueChange({ kind: "create", path: "A/Z.md" });
+  plugin.queueChange({ kind: "create", path: "A/A.md" });
+  plugin.queueChange({ kind: "rename", from: "A/Z.md", to: "A/C.md" });
+  assert.deepEqual(plugin.stable.names("A"), ["B.md", "D.md", "C.md", "A.md"]);
+  const save = io.save;
+  io.save = async () => {
+    throw Error("disk full");
+  };
+  await assert.rejects(plugin.flushChanges(), /disk full/);
+  assert.deepEqual(content(), {});
+  assert.equal(plugin.changes.length, 3);
+  assert.deepEqual(plugin.stable.names("A"), ["B.md", "D.md", "C.md", "A.md"]);
+  io.save = save;
+  await plugin.flushChanges();
+  assert.deepEqual(content().A, ["B.md", "D.md", "C.md", "A.md"]);
+  assert.equal(plugin.changes.length, 0);
+  assert.equal(stats.writes, 1);
+});
+
+test("new events during an asynchronous save form the next complete transaction", async () => {
+  const { plugin, content, io, stats } = await pluginFixture({});
+  plugin.stable.observe("A", ["B.md", "D.md"], true);
+  const save = io.save;
+  let release, started;
+  const saving = new Promise((resolve) => {
+    started = resolve;
+  });
+  io.save = async (data) => {
+    started();
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    await save(data);
+  };
+  plugin.queueChange({ kind: "rename", from: "A/B.md", to: "A/Z.md" });
+  const flushing = plugin.flushChanges();
+  await saving;
+  plugin.queueChange({ kind: "rename", from: "A/Z.md", to: "A/C.md" });
+  plugin.queueChange({ kind: "create", path: "A/A.md" });
+  io.save = save;
+  release();
+  await flushing;
+  await plugin.flushChanges();
+  assert.deepEqual(content().A, ["C.md", "D.md", "A.md"]);
+  assert.equal(stats.writes, 2);
 });

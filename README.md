@@ -16,6 +16,7 @@
 ## Features
 
 - **Arrange each folder your way.** Drag files and folders into a custom order without renaming them.
+- **New items go last; renames keep their place.** The first create or rename in a folder saves its current order, including folders you have never dragged into place.
 - **Choose exactly where to drop.** An insertion line, its indentation, and a folder chooser make nested folder boundaries clear.
 - **Keep the explorer you know.** Use Obsidian’s native file list and your theme. Choose whole-row dragging or a dedicated handle.
 - **Use a mouse or touch.** Separate hold delays for desktop and mobile, with a cancel hint on desktop and a cancel area on touch screens.

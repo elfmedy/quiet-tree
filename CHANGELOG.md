@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- Append newly created files and folders, and files moved in through native operations, after existing entries. Explicit Quiet Tree drop positions still take priority.
+- Keep renamed entries in their prior position in fully recorded, partially recorded and previously unrecorded directories. Record the complete prior display lazily on the first create or rename.
+- Seed in-memory baselines for collapsed folders without rewriting data at startup. Retain exclusions, native ordering reset and synchronized rank precedence.
+- Preserve immediate ordering while changes are saved in batches; retain failed events for retry and coordinate pending saves across plugin reloads.
+
 ## 0.4.3
 
 - Publish from the cleaned source tree, excluding local-only collaboration documents.

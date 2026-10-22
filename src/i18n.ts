@@ -44,6 +44,8 @@ export const en = {
   reset: "Restore native order for this folder",
   ready: "Plugin data reloaded",
   error: "Quiet Tree: could not apply the change. Check the plugin data.json file.",
+  savePending:
+    "Quiet Tree: ordering has not been saved. The current display is retained. Fix storage access, then run Reload plugin data to retry.",
   invalidPath: "Use a vault-relative directory path without ..",
   invalidJson:
     "Invalid data.json format. The original file and last valid order are retained; repair the file and reload plugin data.",
@@ -132,6 +134,8 @@ const zh: Record<TextKey, string> = {
   reset: "恢复此目录的原生排序",
   ready: "插件数据已重新加载",
   error: "Quiet Tree：未能应用更改，请检查插件的 data.json。",
+  savePending:
+    "Quiet Tree：排序尚未保存，当前显示顺序已保留。修复存储访问问题后，运行“重新加载插件数据”重试。",
   invalidPath: "请使用不含 .. 的知识库相对目录路径。",
   invalidJson: "data.json 格式无效。已保留原文件及上次有效排序；修复文件后重新加载插件数据即可。",
   newerDataVersion: "此 data.json 来自更高版本的 Quiet Tree，请更新插件后再使用。原文件未被修改。",

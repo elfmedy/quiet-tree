@@ -5,6 +5,7 @@ import {
   TFolder,
   type TAbstractFile,
   type WorkspaceLeaf,
+  type App,
 } from "obsidian";
 import type { DropTarget } from "../lib/explorer-model";
 import { attachSort, compatibleExplorer, type NativeExplorer } from "./native";
@@ -13,16 +14,23 @@ import {
   attachmentExclusion,
   baseName,
   childPath,
-  deleteOrders,
   excluded,
   renameExclusions,
   renameOrder,
   sortItems,
+  parentPath,
 } from "./order";
 import { translate, type TextKey } from "./i18n";
 import { ExplorerSettingsTab } from "./settings";
 import type { Settings } from "./settings-data";
 import { DataStore } from "./data";
+import { OrderEditor, StableOrder, type FileChange, type StableChange } from "./stable-order";
+
+// Obsidian does not await onunload(). Coordinate only this plugin's asynchronous
+// final save with a replacement instance in the same app; never persist app data.
+const flushHandoff = Symbol.for("quiet-tree.flush-handoff");
+type Handoff = { task: Promise<void>; remaining: StableChange[] };
+type CoordinatedApp = App & { [flushHandoff]?: Handoff };
 
 export default class QuietTreePlugin extends Plugin {
   store!: DataStore;
@@ -34,14 +42,14 @@ export default class QuietTreePlugin extends Plugin {
   >();
   private ownRenames = new Map<string, string>();
   private busy = false;
+  private moving?: Promise<void>;
   private refreshTimer = 0;
   private changeTimer = 0;
-  private changes: (
-    | { kind: "rename"; from: string; to: string }
-    | { kind: "delete"; path: string }
-  )[] = [];
+  private changes: StableChange[] = [];
+  private stable = new StableOrder();
   private flushing: Promise<void> | null = null;
   private alive = false;
+  private baselinesReady = false;
   private loadingLeaves = new WeakSet<WorkspaceLeaf>();
   private warnedViews = new WeakSet<object>();
   t = (key: TextKey): string =>
@@ -54,6 +62,13 @@ export default class QuietTreePlugin extends Plugin {
     return attachmentExclusion(vault.getConfig("attachmentFolderPath") as string | undefined);
   }
   async onload() {
+    const coordinator = this.app as CoordinatedApp;
+    const handoff = coordinator[flushHandoff];
+    if (handoff) {
+      await handoff.task.catch(() => {});
+      if (coordinator[flushHandoff] === handoff) delete coordinator[flushHandoff];
+      this.changes = handoff.remaining;
+    }
     this.store = new DataStore(
       {
         load: async () => {
@@ -99,6 +114,7 @@ export default class QuietTreePlugin extends Plugin {
     } catch (error) {
       this.report(error, "readError");
     }
+    this.stable.rebase(this.store.order, this.changes, this.store.rules);
     this.alive = true;
     this.settingsTab = new ExplorerSettingsTab(this.app, this);
     this.addSettingTab(this.settingsTab);
@@ -129,7 +145,14 @@ export default class QuietTreePlugin extends Plugin {
         this.queueChange({ kind: "delete", path: file.path });
       }),
     );
-    this.registerEvent(this.app.vault.on("create", () => this.cancelDrags()));
+    this.registerEvent(
+      this.app.vault.on("create", (file) => {
+        this.cancelDrags();
+        if (!this.alive || !this.app.workspace.layoutReady || !this.baselinesReady) return;
+        if (file instanceof TFolder) this.stable.seedEmpty(file.path);
+        this.queueChange({ kind: "create", path: file.path });
+      }),
+    );
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
         const path = file instanceof TFolder ? file.path : (file.parent?.path ?? "/");
@@ -143,12 +166,18 @@ export default class QuietTreePlugin extends Plugin {
       }),
     );
     this.registerInterval(window.setInterval(() => this.syncViews(), 2000));
+    if (this.changes.length) this.scheduleChanges();
   }
   onunload() {
     this.alive = false;
     window.clearTimeout(this.refreshTimer);
     window.clearTimeout(this.changeTimer);
-    void this.flushChanges().catch((error) => this.report(error));
+    const handoff: Handoff = { task: Promise.resolve(), remaining: [] };
+    handoff.task = this.flushChanges().finally(() => {
+      handoff.remaining = [...this.changes];
+    });
+    (this.app as CoordinatedApp)[flushHandoff] = handoff;
+    void handoff.task.catch((error) => this.report(error, "savePending"));
     for (const binding of this.views.values()) {
       binding.drag.destroy();
       binding.restore();
@@ -181,17 +210,26 @@ export default class QuietTreePlugin extends Plugin {
   async saveSettings(patch: Partial<Settings>) {
     await this.flushChanges();
     await this.store.saveSettings(patch);
+    this.stable.rebase(this.store.order, this.changes, this.store.rules);
+    this.seedBaselines();
     this.refresh();
   }
-  private queueChange(change: (typeof this.changes)[number]) {
-    this.changes.push(change);
+  private queueChange(change: FileChange) {
+    // A newly loaded/created parent may not have been sorted by the native view yet.
+    const parent = parentPath(change.kind === "rename" ? change.to : change.path);
+    if (!this.stable.has(parent) && change.kind !== "delete") this.seedBaselines(parent);
+    this.changes.push(this.stable.stage(change, this.store.order, this.store.rules));
+    this.scheduleChanges();
+  }
+  private scheduleChanges() {
     if (!this.changeTimer)
       this.changeTimer = window.setTimeout(() => {
         this.changeTimer = 0;
-        void this.flushChanges().catch((error) => this.report(error));
+        void this.flushChanges().catch((error) => this.report(error, "savePending"));
       }, 100);
   }
   async flushChanges(): Promise<void> {
+    if (this.moving) await this.moving;
     window.clearTimeout(this.changeTimer);
     this.changeTimer = 0;
     if (this.flushing) return this.flushing;
@@ -205,28 +243,26 @@ export default class QuietTreePlugin extends Plugin {
   private async applyChanges() {
     while (this.changes.length) {
       const batch = this.changes.splice(0);
-      await this.store.update((order, settings) => {
-        let deletes: string[] = [];
-        for (const change of batch) {
-          if (change.kind === "delete") {
-            deletes.push(change.path);
-            continue;
-          }
-          if (deletes.length) {
-            order = deleteOrders(order, deletes);
-            deletes = [];
-          }
-          settings.excluded = renameExclusions(settings.excluded, change.from, change.to);
-          order = renameOrder(order, change.from, change.to);
-        }
-        return deletes.length ? deleteOrders(order, deletes) : order;
-      });
+      this.stable.startBatch();
+      try {
+        await this.store.update((order, settings) => {
+          const editor = new OrderEditor(order, settings.excluded);
+          for (const change of batch) editor.apply(change);
+          settings.excluded = editor.rules;
+          return editor.result();
+        });
+      } catch (error) {
+        // Keep both the event journal and its visible overlay for an explicit retry.
+        this.changes = [...batch, ...this.changes];
+        throw error;
+      }
+      this.stable.accept(this.store.order, this.changes, this.store.rules, batch);
       this.refresh();
     }
   }
   async onExternalSettingsChange() {
     this.cancelDrags();
-    await this.reload();
+    await this.reload(false, true);
   }
   cancelDrags() {
     for (const { drag } of this.views.values()) drag.cancel();
@@ -295,29 +331,53 @@ export default class QuietTreePlugin extends Plugin {
       }
       let restore: (() => void) | undefined;
       try {
-        restore = attachSort(view, this.store, (error) => this.viewError(view, error));
+        restore = attachSort(view, this.store, (error) => this.viewError(view, error), this.stable);
         this.views.set(view, {
           restore,
           drag: new DragController(this, view),
           root: view.navFileContainerEl,
         });
+        this.seedBaselines();
+        this.baselinesReady = true;
       } catch (error) {
         restore?.();
         this.viewError(view, error);
       }
     }
   }
-  async reload(notify = false) {
+  private seedBaselines(path?: string) {
+    const view = this.views.keys().next().value;
+    if (!view) return;
+    const root = path ? this.app.vault.getAbstractFileByPath(path) : this.app.vault.getRoot();
+    if (!(root instanceof TFolder)) return;
+    const folders = [root];
+    while (folders.length) {
+      const folder = folders.pop()!;
+      if (excluded(folder.path, this.stable.rules(this.store.rules))) continue;
+      if (!this.stable.has(folder.path)) {
+        try {
+          view.getSortedFolderItems(folder);
+        } catch (error) {
+          this.viewError(view, error);
+        }
+      }
+      if (!path)
+        for (const child of folder.children) if (child instanceof TFolder) folders.push(child);
+    }
+  }
+  async reload(notify = false, external = false) {
     if (!this.alive) return;
     const hadError = !!this.store.error;
     try {
-      await this.flushChanges();
+      if (!external) await this.flushChanges();
       this.syncViews();
       const changed = await this.store.load();
+      this.stable.rebase(this.store.order, this.changes, this.store.rules);
       if (changed || hadError) {
         this.refresh();
         this.settingsTab.refreshSettings();
       }
+      if (external && this.changes.length) await this.flushChanges();
       if (notify) new Notice(this.t("ready"));
     } catch (error) {
       if (notify || !hadError) this.report(error, "readError");
@@ -331,11 +391,30 @@ export default class QuietTreePlugin extends Plugin {
         delete order[path];
         return order;
       });
+      this.stable.forget(path);
+      this.stable.rebase(this.store.order, this.changes, this.store.rules);
+      this.seedBaselines(path);
       this.refresh();
       new Notice(this.t("resetDone"));
     } catch (error) {
       this.report(error);
     }
+  }
+  async resetInvalidData() {
+    window.clearTimeout(this.changeTimer);
+    this.changeTimer = 0;
+    if (this.flushing) await this.flushing.catch(() => {});
+    await this.store.resetInvalidData();
+    this.changes = [];
+    this.stable = new StableOrder();
+    // Existing native wrappers hold the same StableOrder instance; rebind them.
+    for (const binding of this.views.values()) {
+      binding.drag.destroy();
+      binding.restore();
+    }
+    this.views.clear();
+    this.syncViews();
+    this.refresh();
   }
   /** Filesystem moves go through FileManager so Obsidian can update links. */
   async move(view: NativeExplorer, path: string, target: DropTarget): Promise<void> {
@@ -349,10 +428,15 @@ export default class QuietTreePlugin extends Plugin {
     }
     if (this.busy || !this.alive) return;
     this.busy = true;
+    let finishMove!: () => void;
+    this.moving = new Promise((resolve) => {
+      finishMove = resolve;
+    });
     let movedFile: TAbstractFile | null = null;
     let originalPath = "";
     try {
       await this.store.load(); // Validate the file before changing any vault path.
+      this.stable.rebase(this.store.order, this.changes, this.store.rules);
       const file = this.app.vault.getAbstractFileByPath(path);
       const destination = target.parentId ?? "/";
       const folder = this.app.vault.getAbstractFileByPath(destination);
@@ -400,6 +484,11 @@ export default class QuietTreePlugin extends Plugin {
         order[destination] = ordered;
         return order;
       });
+      if (source !== destination)
+        this.changes = this.stable.afterMove(path, nextPath, this.changes);
+      this.stable.forget(source);
+      this.stable.forget(destination);
+      this.stable.rebase(this.store.order, this.changes, this.store.rules);
       this.refresh();
       new Notice(this.t("moved"), 1500);
     } catch (error) {
@@ -409,6 +498,8 @@ export default class QuietTreePlugin extends Plugin {
         this.ownRenames.set(from, originalPath);
         try {
           await this.app.fileManager.renameFile(movedFile, originalPath);
+          this.changes = this.stable.afterRollback(from, originalPath, this.changes);
+          this.stable.rebase(this.store.order, this.changes, this.store.rules);
         } catch (rollbackError) {
           console.error("[Quiet Tree] rollback", rollbackError);
           failure = new Error("rollbackFailed");
@@ -420,6 +511,8 @@ export default class QuietTreePlugin extends Plugin {
       this.refresh();
     } finally {
       this.busy = false;
+      this.moving = undefined;
+      finishMove();
     }
   }
 }

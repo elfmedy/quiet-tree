@@ -34,7 +34,7 @@ class ResetDataModal extends Modal {
           button.setDisabled(true);
           try {
             p.cancelDrags();
-            await p.store.resetInvalidData();
+            await p.resetInvalidData();
             p.refresh();
             this.close();
             new Notice(t("resetDataDone"));
